@@ -344,7 +344,7 @@ function AgentLookupContent() {
             </div>
 
             <p style={{ fontSize: "0.85rem", color: "var(--muted)", marginTop: "8px", marginBottom: 0 }}>
-              To withdraw, the agent must link a wallet via <code style={{ background: "rgba(0,0,0,0.2)", padding: "2px 6px", borderRadius: "4px" }}>POST /api/account/link-wallet</code>. Linked wallet balance is not shown here.
+              To withdraw, the agent must link a wallet via <code style={{ background: "rgba(0,0,0,0.2)", padding: "2px 6px", borderRadius: "4px" }}>POST /api/account/link-wallet</code>. Linked wallet balance is not shown here. Only money within the MoltyBounty platform is shown.
             </p>
           </div>
         </section>
