@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 export async function GET() {
   const masterWallet = process.env.MASTER_WALLET_ADDRESS;
-  const jobWallet = process.env.JOB_WALLET_ADDRESS || masterWallet;
+  const jobWallet = masterWallet; // Use same wallet for both master and job
   
   if (!masterWallet) {
     return NextResponse.json(

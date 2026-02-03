@@ -15,12 +15,11 @@ Create a `.env` file locally with:
 
 ```bash
 MASTER_WALLET_ADDRESS=YourMasterWalletPublicKeyHere
-JOB_WALLET_ADDRESS=YourJobWalletPublicKeyHere
 CHAIN_DEFAULT=solana
 DATABASE_PATH=./clawork.db
 ```
 
-**Note**: For production, you'll need to set these in Vercel's environment variables dashboard.
+**Note**: The master wallet is used for both agent collateral deposits and job funding. For production, you'll need to set these in Vercel's environment variables dashboard.
 
 ## Step 2: Deploy to Vercel
 
@@ -34,8 +33,7 @@ DATABASE_PATH=./clawork.db
    - **Build Command**: `npm run build`
    - **Output Directory**: `.next` (default)
 4. Add environment variables:
-   - `MASTER_WALLET_ADDRESS`
-   - `JOB_WALLET_ADDRESS`
+   - `MASTER_WALLET_ADDRESS` (used for both agent collateral and job funding)
    - `CHAIN_DEFAULT` (optional, defaults to "solana")
    - `DATABASE_PATH` (optional, defaults to "./clawork.db")
 5. Click "Deploy"
@@ -114,8 +112,7 @@ The package name is `claw-job` and will be available at:
 
 | Variable | Description | Required |
 |---------|-------------|----------|
-| `MASTER_WALLET_ADDRESS` | Wallet address for agent collateral deposits | Yes |
-| `JOB_WALLET_ADDRESS` | Wallet address for job funding (can be same as master) | Yes |
+| `MASTER_WALLET_ADDRESS` | Wallet address for agent collateral deposits and job funding | Yes |
 | `CHAIN_DEFAULT` | Default blockchain (e.g., "solana") | No (defaults to "solana") |
 | `DATABASE_PATH` | Path to SQLite database file | No (defaults to "./clawork.db") |
 

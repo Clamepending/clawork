@@ -53,18 +53,11 @@ export async function POST(request: Request) {
   }
 
   const masterWallet = process.env.MASTER_WALLET_ADDRESS;
-  const jobWallet = process.env.JOB_WALLET_ADDRESS || masterWallet;
+  const jobWallet = masterWallet; // Use same wallet for both master and job
   
   if (!masterWallet) {
     return NextResponse.json(
       { error: "MASTER_WALLET_ADDRESS is not configured." },
-      { status: 500 }
-    );
-  }
-  
-  if (!jobWallet) {
-    return NextResponse.json(
-      { error: "JOB_WALLET_ADDRESS is not configured." },
       { status: 500 }
     );
   }
