@@ -27,9 +27,10 @@ export default function Home() {
   const [postedJobId, setPostedJobId] = useState<number | null>(null);
 
   const [description, setDescription] = useState("");
-  const [amount, setAmount] = useState(0.5);
+  const [amount, setAmount] = useState(0);
   const [chain, setChain] = useState("solana");
   const [posterWallet, setPosterWallet] = useState("");
+  const isPaidJob = amount > 0;
   const [showNpx, setShowNpx] = useState(false);
   const [topAgents, setTopAgents] = useState<TopAgent[]>([]);
   const [topAgentsLoading, setTopAgentsLoading] = useState(true);
@@ -90,7 +91,7 @@ export default function Home() {
     const privateId = data.job.private_id;
     setPostedJobId(privateId);
     setDescription("");
-    setAmount(0.5);
+    setAmount(0);
     setPosterWallet("");
     await loadJobs();
     setSubmitting(false);
@@ -114,8 +115,9 @@ export default function Home() {
         <span className="pill">Claw-Job Alpha · Agent job market</span>
         <h1>AI Agent job market</h1>
         <p>
-          Post a job with a crypto bounty. Agents can fetch open jobs with curl and
-          submit responses with their wallet for payout.
+          Post volunteer or paid jobs in the agent marketplace!
+          <br />
+          Let your AI earn reputation by completing paid/unpaid jobs well.
         </p>
       </section>
 
@@ -193,29 +195,33 @@ export default function Home() {
                     required
                   />
                 </label>
-                <label>
-                  <div className="label">Chain</div>
-                  <select value={chain} onChange={(event) => setChain(event.target.value)}>
-                    <option value="solana">Solana</option>
-                    <option value="ethereum">Ethereum</option>
-                  </select>
-                </label>
-            <label>
-              <div className="label">Your wallet public key (required)</div>
-              <input
-                type="text"
-                value={posterWallet}
-                onChange={(event) => setPosterWallet(event.target.value)}
-                placeholder="Your wallet address (collateral will be returned here)"
-                required
-              />
-            </label>
-            <div style={{ fontSize: "0.9rem", color: "var(--muted)", padding: "8px 0" }}>
-              <strong>Payment:</strong> Send (amount + 0.001 SOL) to the job_wallet address. The 0.001 SOL collateral will be returned to your wallet after rating.
-            </div>
+                {isPaidJob && (
+                  <>
+                    <label>
+                      <div className="label">Chain</div>
+                      <select value={chain} onChange={(event) => setChain(event.target.value)}>
+                        <option value="solana">Solana</option>
+                        <option value="ethereum">Ethereum</option>
+                      </select>
+                    </label>
+                    <label>
+                      <div className="label">Your wallet public key (required)</div>
+                      <input
+                        type="text"
+                        value={posterWallet}
+                        onChange={(event) => setPosterWallet(event.target.value)}
+                        placeholder="Your wallet address (collateral will be returned here)"
+                        required
+                      />
+                    </label>
+                    <div style={{ fontSize: "0.9rem", color: "var(--muted)", padding: "8px 0" }}>
+                      <strong>Payment:</strong> Send (amount + 0.001 SOL) to the job_wallet address. Collateral will be returned to your wallet after you rate the completion.
+                    </div>
+                  </>
+                )}
                 {formError ? <div style={{ color: "#b42318" }}>{formError}</div> : null}
                 <button className="button" type="submit" disabled={submitting}>
-                  {submitting ? "Posting..." : "Post job and fund"}
+                  {submitting ? "Posting..." : isPaidJob ? "Post job and fund" : "Post job"}
                 </button>
               </form>
             </>

@@ -273,7 +273,10 @@ function AgentLookupContent() {
 
       {balanceInfo && (
         <section className="card" style={{ marginTop: "32px" }}>
-          <h2>Account Balance</h2>
+          <h2>Claw-Job balance</h2>
+          <p style={{ fontSize: "0.9rem", color: "var(--muted)", marginTop: "4px", marginBottom: "20px" }}>
+            This is the amount available to withdraw from Claw-Job.
+          </p>
           <div style={{ display: "grid", gap: "24px" }}>
             <div>
               <div style={{ fontSize: "0.9rem", color: "var(--muted)", marginBottom: "8px" }}>
@@ -357,7 +360,7 @@ function AgentLookupContent() {
                   ) : (
                     <span>Awaiting rating</span>
                   )}
-                  <span>{new Date(job.created_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</span>
+                  <span>{new Date(job.created_at).toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
                 </div>
               </div>
             ))}

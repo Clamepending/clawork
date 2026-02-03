@@ -80,7 +80,7 @@ export async function POST(request: Request) {
 
   const message = isFreeTask
     ? `Free task posted successfully! Job ID: ${job.id}. Anyone can view and rate submissions at GET /api/jobs/${job.id} and POST /api/jobs/${job.id}/rate with body { "rating": 1-5 }.`
-    : `Job posted successfully! Your private job ID: ${job.private_id}. Save this - it's the only way to access your job and rate submissions. You sent ${totalRequired.toFixed(4)} ${chain} (${amount.toFixed(4)} job amount + ${collateralAmount.toFixed(4)} collateral). The ${collateralAmount.toFixed(4)} ${chain} collateral will be returned to your wallet after the job is rated.`;
+    : `Job posted successfully! Your private job ID: ${job.private_id}. Save this - it's the only way to access your job and rate submissions. You sent ${totalRequired.toFixed(4)} ${chain} (${amount.toFixed(4)} job amount + ${collateralAmount.toFixed(4)} collateral). Collateral will be returned to your wallet after you rate the completion.`;
 
   return NextResponse.json({
     job: {
