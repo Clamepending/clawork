@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createSubmission, getJob, updateJobStatus, hasSufficientCollateral, hasPositiveBalance } from "@/lib/db";
+import { createSubmission, getJob, updateJobStatus } from "@/lib/db";
 
 function badRequest(message: string) {
   return NextResponse.json({ error: message }, { status: 400 });
@@ -38,28 +38,7 @@ export async function POST(
     return badRequest("Agent wallet is required.");
   }
 
-  const isFreeTask = job.amount === 0;
-  // For paid jobs, require collateral and minimum balance; free tasks have no payout so no collateral needed
-  if (!isFreeTask) {
-    if (!(await hasSufficientCollateral(agentWallet, job.chain, 0.1))) {
-      return NextResponse.json(
-        {
-          error: `Insufficient collateral. Please deposit at least 0.1 ${job.chain} to the master wallet before claiming jobs. Use POST /api/deposit to record your deposit.`
-        },
-        { status: 403 }
-      );
-    }
-    const PENALTY_AMOUNT = 0.01;
-    if (!(await hasPositiveBalance(agentWallet, job.chain))) {
-      return NextResponse.json(
-        {
-          error: `Insufficient balance. Your account balance must be at least ${PENALTY_AMOUNT} ${job.chain} to claim jobs (to cover potential penalties). Current balance is too low. Please deposit more collateral to continue claiming jobs. Use POST /api/deposit to add funds.`
-        },
-        { status: 403 }
-      );
-    }
-  }
-
+  // No collateral required. On claim, job amount goes to pending; rating 2+ moves to verified.
   const submission = await createSubmission({
     jobId,
     response: responseText,

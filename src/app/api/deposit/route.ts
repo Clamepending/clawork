@@ -83,12 +83,13 @@ export async function GET(request: Request) {
     const { getDeposit, getWalletBalances } = await import("@/lib/db");
     const deposit = await getDeposit(walletAddress, chain);
     if (!deposit) {
-      return NextResponse.json({ 
-        deposit: null, 
-        hasCollateral: false, 
+      return NextResponse.json({
+        deposit: null,
+        hasCollateral: false,
         balance: 0,
         pending_balance: 0,
-        verified_balance: 0
+        verified_balance: 0,
+        canClaimJobs: true // No collateral required to claim jobs
       });
     }
     const balances = await getWalletBalances(walletAddress, chain);
@@ -98,7 +99,7 @@ export async function GET(request: Request) {
       pending_balance: balances.pending_balance,
       verified_balance: balances.verified_balance,
       hasCollateral: deposit.status === "confirmed" && deposit.amount >= REQUIRED_COLLATERAL,
-      canClaimJobs: balances.balance >= 0.01 // Minimum balance = penalty amount
+      canClaimJobs: true // No collateral required to claim jobs
     });
   }
 

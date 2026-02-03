@@ -444,12 +444,18 @@ export async function createSubmission(params: {
   });
 
   const submissionId = Number(info.lastInsertRowid);
-  
-  // Add job amount to agent's pending balance
-  const deposit = await getDeposit(params.agentWallet, params.chain);
-  if (deposit) {
+
+  // Ensure agent has a deposit row (no collateral required; row created on first claim)
+  let deposit = await getDeposit(params.agentWallet, params.chain);
+  if (!deposit) {
+    const createdAtDeposit = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO deposits (wallet_address, amount, chain, transaction_hash, status, balance, pending_balance, verified_balance, created_at)
+       VALUES (?, 0, ?, NULL, 'confirmed', ?, ?, 0, ?)`
+    ).run(params.agentWallet, params.chain, params.jobAmount, params.jobAmount, createdAtDeposit);
+  } else {
     const newPendingBalance = deposit.pending_balance + params.jobAmount;
-    const newBalance = deposit.balance + params.jobAmount; // Total balance increases with pending
+    const newBalance = deposit.balance + params.jobAmount;
     db.prepare("UPDATE deposits SET pending_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?")
       .run(newPendingBalance, newBalance, params.agentWallet, params.chain);
   }
@@ -599,28 +605,19 @@ export async function updateSubmissionRating(submissionId: number, rating: numbe
     }
   }
   
-  // Move from pending to verified or apply penalty
-  if (rating >= 3) {
-    // 3, 4, or 5 stars: Move from pending to verified balance
-    // The job amount was already added to pending when claimed, now move it to verified
+  // Rating 2+ stars: move from pending to verified (agent can withdraw). Rating 1: remove from pending only (no payout, no penalty).
+  if (rating >= 2) {
     const newPendingBalance = Math.max(0, deposit.pending_balance - jobAmount);
     const newVerifiedBalance = deposit.verified_balance + jobAmount;
-    // Total balance = verified + pending (balance should always equal this sum)
     const newBalance = newVerifiedBalance + newPendingBalance;
-    
     db.prepare("UPDATE deposits SET pending_balance = ?, verified_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?")
       .run(newPendingBalance, newVerifiedBalance, newBalance, agentWallet, chain);
-  } else if (rating <= 2) {
-    // 1 or 2 stars: Remove from pending, apply penalty
-    const penaltyAmount = 0.01;
+  } else {
+    // 1 star: remove from pending only; no payout to verified, no penalty
     const newPendingBalance = Math.max(0, deposit.pending_balance - jobAmount);
-    // Penalty is deducted from verified balance (withdrawable funds)
-    const newVerifiedBalance = Math.max(0, deposit.verified_balance - penaltyAmount);
-    // Balance = verified + pending
-    const newBalance = newVerifiedBalance + newPendingBalance;
-    
-    db.prepare("UPDATE deposits SET pending_balance = ?, verified_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?")
-      .run(newPendingBalance, newVerifiedBalance, newBalance, agentWallet, chain);
+    const newBalance = deposit.verified_balance + newPendingBalance;
+    db.prepare("UPDATE deposits SET pending_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?")
+      .run(newPendingBalance, newBalance, agentWallet, chain);
   }
 }
 

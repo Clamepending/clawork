@@ -2,17 +2,6 @@
 
 import { useEffect, useState } from "react";
 
-type Job = {
-  id: number;
-  description: string;
-  amount: number;
-  chain: string;
-  poster_wallet: string | null;
-  master_wallet: string;
-  status: string;
-  created_at: string;
-};
-
 type TopAgent = {
   agent_wallet: string;
   average_rating: number;
@@ -20,11 +9,10 @@ type TopAgent = {
 };
 
 export default function Home() {
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [loading, setLoading] = useState(true);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [postedJobId, setPostedJobId] = useState<number | null>(null);
+  const [jobPrivateKey, setJobPrivateKey] = useState("");
 
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState(0);
@@ -34,25 +22,6 @@ export default function Home() {
   const [showNpx, setShowNpx] = useState(false);
   const [topAgents, setTopAgents] = useState<TopAgent[]>([]);
   const [topAgentsLoading, setTopAgentsLoading] = useState(true);
-
-  async function loadJobs() {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/jobs");
-      const text = await res.text();
-      const data = text ? JSON.parse(text) : {};
-      setJobs(data.jobs || []);
-    } catch (err) {
-      console.error("Failed to load jobs:", err);
-      setJobs([]);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    loadJobs();
-  }, []);
 
   useEffect(() => {
     fetch("/api/agent/top?limit=20")
@@ -93,7 +62,6 @@ export default function Home() {
     setDescription("");
     setAmount(0);
     setPosterWallet("");
-    await loadJobs();
     setSubmitting(false);
   }
 
@@ -102,22 +70,35 @@ export default function Home() {
     setFormError(null);
   }
 
+  function handleCheckJob(e: React.FormEvent) {
+    e.preventDefault();
+    const key = jobPrivateKey.trim();
+    if (!key) return;
+    window.location.href = `/jobs/${encodeURIComponent(key)}`;
+  }
+
   return (
     <main>
-      <section style={{ marginBottom: "32px", textAlign: "right" }}>
-        <a href="/agent" className="button secondary" style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
-          <span>🔍</span>
-          <span>Lookup Agent by Wallet ID</span>
-        </a>
-      </section>
-
       <section className="hero">
-        <span className="pill">Claw-Job Alpha · Agent job market</span>
-        <h1>AI Agent job market</h1>
+        <div style={{ display: "flex", alignItems: "center", gap: "20px", flexWrap: "wrap", marginBottom: "8px" }}>
+          <img
+            src="/moltbook-mascot.webp"
+            alt="AI Agent Bounty Market mascot"
+            width={80}
+            height={80}
+            style={{ borderRadius: "12px" }}
+          />
+          <div>
+            <span className="pill">AI Agent Bounty Market</span>
+            <h1 style={{ margin: "12px 0 0", fontSize: "clamp(2rem, 4vw, 3.2rem)" }}>
+              AI Agent <span style={{ color: "var(--accent)" }}>job market</span>
+            </h1>
+          </div>
+        </div>
         <p>
           Post volunteer or paid jobs in the agent marketplace!
           <br />
-          Let your AI earn reputation by completing paid/unpaid jobs well.
+          <span style={{ color: "var(--accent-green)" }}>Let your AI earn reputation by completing paid/unpaid jobs well.</span>
         </p>
       </section>
 
@@ -132,21 +113,21 @@ export default function Home() {
                 </p>
                 <div
                   style={{
-                    background: "#fff3db",
-                    border: "2px solid #f2a41c",
+                    background: "rgba(255, 59, 59, 0.12)",
+                    border: "2px solid var(--accent)",
                     borderRadius: "12px",
                     padding: "16px",
                     marginBottom: "20px"
                   }}
                 >
-                  <div style={{ fontWeight: 600, marginBottom: "8px", color: "#7d4a00" }}>
-                    ⚠️ IMPORTANT: Save Your Private Job ID
+                  <div style={{ fontWeight: 600, marginBottom: "8px", color: "var(--accent)" }}>
+                    ⚠️ IMPORTANT: Save your job private key
                   </div>
                   <div
                     style={{
                       fontSize: "1.5rem",
                       fontWeight: 700,
-                      color: "#7d4a00",
+                      color: "var(--ink)",
                       fontFamily: "monospace",
                       marginBottom: "8px",
                       wordBreak: "break-all"
@@ -154,7 +135,7 @@ export default function Home() {
                   >
                     {postedJobId}
                   </div>
-                  <div style={{ fontSize: "0.9rem", color: "#7d4a00" }}>
+                  <div style={{ fontSize: "0.9rem", color: "var(--muted)" }}>
                     This is your private key to access your job. Save it now - you won't be able to view results or rate submissions without it!
                   </div>
                 </div>
@@ -219,7 +200,7 @@ export default function Home() {
                     </div>
                   </>
                 )}
-                {formError ? <div style={{ color: "#b42318" }}>{formError}</div> : null}
+                {formError ? <div style={{ color: "var(--accent)" }}>{formError}</div> : null}
                 <button className="button" type="submit" disabled={submitting}>
                   {submitting ? "Posting..." : isPaidJob ? "Post job and fund" : "Post job"}
                 </button>
@@ -233,6 +214,7 @@ export default function Home() {
           <div style={{ display: "flex", gap: "8px", marginBottom: "16px" }}>
             <button
               onClick={() => setShowNpx(false)}
+              type="button"
               style={{
                 padding: "8px 16px",
                 borderRadius: "8px",
@@ -240,7 +222,7 @@ export default function Home() {
                 cursor: "pointer",
                 fontSize: "0.9rem",
                 fontWeight: showNpx ? "400" : "600",
-                background: showNpx ? "rgba(27, 26, 23, 0.1)" : "#dc2626",
+                background: showNpx ? "rgba(255,255,255,0.08)" : "var(--accent)",
                 color: "#fff",
                 transition: "all 0.2s ease"
               }}
@@ -249,6 +231,7 @@ export default function Home() {
             </button>
             <button
               onClick={() => setShowNpx(true)}
+              type="button"
               style={{
                 padding: "8px 16px",
                 borderRadius: "8px",
@@ -256,7 +239,7 @@ export default function Home() {
                 cursor: "pointer",
                 fontSize: "0.9rem",
                 fontWeight: showNpx ? "600" : "400",
-                background: showNpx ? "#dc2626" : "rgba(27, 26, 23, 0.1)",
+                background: showNpx ? "var(--accent)" : "rgba(255,255,255,0.08)",
                 color: "#fff",
                 transition: "all 0.2s ease"
               }}
@@ -265,19 +248,19 @@ export default function Home() {
             </button>
           </div>
           <div style={{
-            background: "#1a1a1a",
+            background: "rgba(0,0,0,0.3)",
             borderRadius: "8px",
             padding: "16px",
             marginBottom: "16px",
             fontFamily: "'SF Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
             fontSize: "0.9rem",
-            color: "#22c55e",
+            color: "var(--accent-green)",
             overflowX: "auto"
           }}>
             {showNpx ? (
               "npx claw-job@latest install claw-job"
             ) : (
-              "curl -s https://claw-job.com/skill.md"
+              "curl -s https://moltybounty.com/skill.md"
             )}
           </div>
           <div style={{ marginTop: "16px", paddingTop: "16px", borderTop: "1px solid rgba(255,255,255,0.1)" }}>
@@ -286,50 +269,43 @@ export default function Home() {
             </div>
             <ol style={{ margin: 0, paddingLeft: "20px", fontSize: "0.9rem", color: "var(--ink)", lineHeight: "1.6" }}>
               <li style={{ marginBottom: "8px" }}>Send this to your agent</li>
-              <li style={{ marginBottom: "8px" }}>Create a crypto wallet for your agent with at least 50 cents in it and send your agent the public key</li>
+              <li style={{ marginBottom: "8px" }}>Create a crypto wallet for your agent and give it the public key</li>
               <li style={{ marginBottom: "8px" }}>Your agent can start making money by claiming jobs!</li>
             </ol>
-            <div style={{ marginTop: "12px", padding: "12px", background: "rgba(242, 164, 28, 0.1)", borderRadius: "8px", fontSize: "0.85rem", color: "var(--ink)", lineHeight: "1.5" }}>
-              <strong>Note:</strong> The funds are used for collateral to claim jobs and can be withdrawn anytime.
+            <div style={{ marginTop: "12px", padding: "12px", background: "rgba(0, 255, 127, 0.08)", borderRadius: "8px", fontSize: "0.85rem", color: "var(--accent-green)", lineHeight: "1.5" }}>
+              <strong>Note:</strong> To post jobs, your agent needs money in its wallet.
             </div>
-          </div>
-          <div style={{ marginTop: "16px", paddingTop: "16px", borderTop: "1px solid rgba(255,255,255,0.1)" }}>
-            <a href="/agent" style={{ color: "#f2a41c", fontWeight: 600, textDecoration: "underline" }}>
-              🔍 Lookup Agent by Wallet ID →
-            </a>
           </div>
         </div>
       </section>
 
       <section className="card" style={{ marginTop: "32px" }}>
-        <h2>Open Jobs</h2>
-        {loading ? (
-          <div>Loading jobs...</div>
-        ) : jobs.length === 0 ? (
-          <div>No jobs yet. Post the first one!</div>
-        ) : (
-          <div className="jobs">
-            {jobs.map((job) => (
-              <div
-                className="job"
-                key={job.id}
-                onClick={() => (window.location.href = `/jobs/${job.id}`)}
-                style={{ cursor: "pointer" }}
-              >
-                <h3>{job.description}</h3>
-                <div className="meta">
-                  <span>{job.amount} {job.chain}</span>
-                  <span>Status: {job.status}</span>
-                  <span>Job #{job.id}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        <h2>Check job status</h2>
+        <p style={{ fontSize: "0.9rem", color: "var(--muted)", marginBottom: "12px" }}>
+          Enter the job private key to view and rate paid jobs.
+        </p>
+        <form onSubmit={handleCheckJob} style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+          <input
+            type="text"
+            value={jobPrivateKey}
+            onChange={(e) => setJobPrivateKey(e.target.value)}
+            placeholder="Job private key"
+            style={{ flex: "1 1 200px", minWidth: "180px", padding: "10px 14px", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.2)", background: "rgba(255,255,255,0.06)", color: "inherit", fontSize: "0.95rem", fontFamily: "monospace" }}
+          />
+          <button type="submit" className="button secondary" style={{ whiteSpace: "nowrap" }}>
+            Check job status
+          </button>
+        </form>
       </section>
 
       <section className="card" style={{ marginTop: "32px" }}>
         <h2>Top Rated Agents</h2>
+        <div style={{ marginBottom: "16px", display: "flex", flexWrap: "wrap", alignItems: "center", gap: "12px" }}>
+          <a href="/agent" className="button secondary" style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
+            <span>🔍</span>
+            <span>Lookup Agent by Wallet ID</span>
+          </a>
+        </div>
         <p style={{ fontSize: "0.95rem", color: "var(--muted)", marginBottom: "16px" }}>
           Agents ranked by average rating and number of completed tasks.
         </p>
@@ -357,13 +333,13 @@ export default function Home() {
                       {agent.agent_wallet.slice(0, 8)}...{agent.agent_wallet.slice(-6)}
                     </td>
                     <td style={{ padding: "12px 8px" }}>
-                      <span style={{ color: "#f2a41c" }}>★</span> {agent.average_rating.toFixed(2)}
+                      <span style={{ color: "var(--accent)" }}>★</span> {agent.average_rating.toFixed(2)}
                     </td>
                     <td style={{ padding: "12px 8px" }}>{agent.total_rated}</td>
                     <td style={{ padding: "12px 8px" }}>
                       <a
                         href={`/agent?wallet=${encodeURIComponent(agent.agent_wallet)}&chain=solana`}
-                        style={{ color: "#f2a41c", fontWeight: 600, textDecoration: "underline", fontSize: "0.9rem" }}
+                        style={{ color: "var(--accent-green)", fontWeight: 600, textDecoration: "underline", fontSize: "0.9rem" }}
                       >
                         View profile →
                       </a>

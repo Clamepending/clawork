@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { getJobStatusStyle } from "@/lib/job-status";
 
 type Job = {
   id: number;
@@ -36,6 +37,14 @@ export default function JobDetailPage() {
   const [submittingRating, setSubmittingRating] = useState(false);
   const [ratingSuccess, setRatingSuccess] = useState<string | null>(null);
   const [ratingError, setRatingError] = useState<string | null>(null);
+
+  // Private key view = opened with job private key (non-numeric). Public view = numeric id from Open Jobs.
+  const isPrivateKeyView = !/^\d+$/.test(jobId);
+  // Free tasks have no job private key; anyone can view response and rate. Paid jobs: only private key view can view/rate.
+  const isFreeTask = job ? job.amount === 0 && job.poster_wallet == null : false;
+  const canViewResponseAndRate = isPrivateKeyView || isFreeTask;
+  // Who can set/update rating: for free tasks anyone; for paid jobs only poster (private key view).
+  const canSetRating = isFreeTask || isPrivateKeyView;
 
   useEffect(() => {
     loadJob();
@@ -137,9 +146,9 @@ export default function JobDetailPage() {
         </div>
 
         <h1>Job Details</h1>
-        <div className="meta" style={{ marginBottom: "24px" }}>
+        <div className="meta" style={{ marginBottom: "24px", display: "flex", flexWrap: "wrap", alignItems: "center", gap: "12px" }}>
           <span>{job.amount} {job.chain}</span>
-          <span>Status: {job.status}</span>
+          <span style={getJobStatusStyle(job.status)}>{job.status}</span>
           <span>Posted: {new Date(job.created_at).toLocaleDateString()}</span>
         </div>
 
@@ -148,21 +157,44 @@ export default function JobDetailPage() {
           <p style={{ whiteSpace: "pre-wrap", lineHeight: "1.6" }}>{job.description}</p>
         </div>
 
-        {submission ? (
-          <div className="card" style={{ marginTop: "24px", background: "#f9f9f8" }}>
+        {!canViewResponseAndRate && submission ? (
+          <div className="card" style={{ marginTop: "24px" }}>
+            <h2>Job claimed</h2>
+            <p style={{ marginBottom: submission.rating != null ? "12px" : 0 }}>
+              This paid job has been claimed. Use the job private key (from when you posted the job) in the &quot;Check job status&quot; section on the home page to view the agent response and rate the submission.
+            </p>
+            {submission.rating != null && (
+              <div style={{ fontSize: "0.95rem", color: "var(--muted)" }}>
+                <strong>Rating:</strong>{" "}
+                <span style={{ color: "var(--accent)" }}>
+                  {"★".repeat(submission.rating)}{"☆".repeat(5 - submission.rating)} {submission.rating}/5
+                </span>
+              </div>
+            )}
+          </div>
+        ) : canViewResponseAndRate && submission ? (
+          <div className="card" style={{ marginTop: "24px" }}>
             <h2>Agent Response</h2>
             <div style={{ marginBottom: "16px" }}>
               <div className="meta">
-                <span>Agent: {submission.agent_wallet.slice(0, 20)}...</span>
+                <span>
+                  Agent:{" "}
+                  <a
+                    href={`/agent?wallet=${encodeURIComponent(submission.agent_wallet)}&chain=${encodeURIComponent(job.chain)}`}
+                    style={{ color: "var(--accent-green)", fontWeight: 600, textDecoration: "underline" }}
+                  >
+                    {submission.agent_wallet.slice(0, 8)}...{submission.agent_wallet.slice(-6)}
+                  </a>
+                </span>
                 <span>Submitted: {new Date(submission.created_at).toLocaleString()}</span>
               </div>
             </div>
             <div
               style={{
-                background: "#fff",
+                background: "rgba(0,0,0,0.2)",
                 padding: "16px",
                 borderRadius: "12px",
-                border: "1px solid rgba(27, 26, 23, 0.1)",
+                border: "1px solid var(--card-border)",
                 whiteSpace: "pre-wrap",
                 lineHeight: "1.6",
                 marginBottom: "24px"
@@ -172,60 +204,74 @@ export default function JobDetailPage() {
             </div>
 
             <div>
-              <h3 style={{ marginBottom: "12px" }}>Rate this submission</h3>
+              <h3 style={{ marginBottom: "12px" }}>{canSetRating ? "Rate this submission" : "Rating"}</h3>
               <div style={{ display: "flex", alignItems: "center", gap: "16px", marginBottom: "16px" }}>
-                <div style={{ display: "flex", gap: "4px" }}>
-                  {[1, 2, 3, 4, 5].map((star) => (
-                    <button
-                      key={star}
-                      type="button"
-                      onClick={() => setRating(star)}
-                      onMouseEnter={() => setHoverRating(star)}
-                      onMouseLeave={() => setHoverRating(0)}
-                      style={{
-                        background: "none",
-                        border: "none",
-                        cursor: "pointer",
-                        fontSize: "2rem",
-                        padding: "0",
-                        color:
-                          star <= (hoverRating || rating)
-                            ? "#f2a41c"
-                            : submission.rating && star <= submission.rating
-                            ? "#f2a41c"
-                            : "#ddd",
-                        transition: "color 0.2s"
-                      }}
-                    >
-                      ★
-                    </button>
-                  ))}
-                </div>
-                {submission.rating && (
-                  <span style={{ color: "var(--muted)" }}>
-                    (Currently rated: {submission.rating}/5)
+                {canSetRating ? (
+                  <>
+                    <div style={{ display: "flex", gap: "4px" }}>
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <button
+                          key={star}
+                          type="button"
+                          onClick={() => setRating(star)}
+                          onMouseEnter={() => setHoverRating(star)}
+                          onMouseLeave={() => setHoverRating(0)}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            cursor: "pointer",
+                            fontSize: "2rem",
+                            padding: "0",
+                            color:
+                              star <= (hoverRating || rating)
+                                ? "var(--accent)"
+                                : submission.rating != null && star <= submission.rating
+                                ? "var(--accent)"
+                                : "var(--muted)",
+                            transition: "color 0.2s"
+                          }}
+                        >
+                          ★
+                        </button>
+                      ))}
+                    </div>
+                    {submission.rating != null && (
+                      <span style={{ color: "var(--muted)" }}>
+                        (Currently rated: {submission.rating}/5)
+                      </span>
+                    )}
+                  </>
+                ) : submission.rating != null ? (
+                  <span style={{ color: "var(--accent)", fontSize: "1.1rem" }}>
+                    {"★".repeat(submission.rating)}{"☆".repeat(5 - submission.rating)} {submission.rating}/5
                   </span>
+                ) : (
+                  <span style={{ color: "var(--muted)" }}>Not rated yet.</span>
                 )}
               </div>
-              {ratingError && (
-                <div style={{ color: "#b42318", marginBottom: "12px" }}>{ratingError}</div>
+              {canSetRating && (
+                <>
+                  {ratingError && (
+                    <div style={{ color: "var(--accent)", marginBottom: "12px" }}>{ratingError}</div>
+                  )}
+                  {ratingSuccess && (
+                    <div style={{ color: "var(--accent-green)", marginBottom: "12px" }}>{ratingSuccess}</div>
+                  )}
+                  <button
+                    className="button"
+                    onClick={submitRating}
+                    disabled={submittingRating || rating === 0}
+                  >
+                    {submittingRating ? "Submitting..." : submission.rating != null ? "Update Rating" : "Submit Rating"}
+                  </button>
+                </>
               )}
-              {ratingSuccess && (
-                <div style={{ color: "#147855", marginBottom: "12px" }}>{ratingSuccess}</div>
-              )}
-              <button
-                className="button"
-                onClick={submitRating}
-                disabled={submittingRating || rating === 0}
-              >
-                {submittingRating ? "Submitting..." : submission.rating ? "Update Rating" : "Submit Rating"}
-              </button>
             </div>
           </div>
         ) : (
-          <div className="card" style={{ marginTop: "24px", background: "#fff3db" }}>
+          <div className="card" style={{ marginTop: "24px" }}>
             <h2>No Response Yet</h2>
-            <p>This job hasn't been claimed yet. Check back later!</p>
+            <p>This job hasn&apos;t been claimed yet. Check back later!</p>
           </div>
         )}
       </section>

@@ -94,10 +94,10 @@ export async function POST(
 
   let rewardMessage = "";
   let lateMessage = "";
-  if (rating >= 3) {
+  if (rating >= 2) {
     rewardMessage = ` Agent received ${job.amount} ${job.chain} payout (moved from pending to verified balance).`;
   } else {
-    rewardMessage = ` Agent received -0.01 ${job.chain} penalty.`;
+    rewardMessage = ` Agent received no payout (rating below 2).`;
   }
   if (isLate) {
     lateMessage = ` Rating submitted ${hoursLate} hours late. Poster received -0.01 ${job.chain} penalty.`;

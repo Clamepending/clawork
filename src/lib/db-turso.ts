@@ -255,9 +255,16 @@ export async function createSubmissionTurso(params: {
 
   const submissionId = Number(result.lastInsertRowid);
 
-  // Update agent's pending balance
+  // Ensure agent has a deposit row (no collateral required; row created on first claim)
   const deposit = await getDepositTurso(params.agentWallet, params.chain);
-  if (deposit) {
+  if (!deposit) {
+    const createdAtDeposit = new Date().toISOString();
+    await client.execute({
+      sql: `INSERT INTO deposits (wallet_address, amount, chain, transaction_hash, status, balance, pending_balance, verified_balance, created_at)
+            VALUES (?, 0, ?, NULL, 'confirmed', ?, ?, 0, ?)`,
+      args: [params.agentWallet, params.chain, params.jobAmount, params.jobAmount, createdAtDeposit],
+    });
+  } else {
     const newPendingBalance = deposit.pending_balance + params.jobAmount;
     const newBalance = deposit.balance + params.jobAmount;
     await client.execute({
@@ -331,24 +338,21 @@ export async function updateSubmissionRatingTurso(
     }
   }
 
-  if (rating >= 3) {
+  // Rating 2+ stars: move from pending to verified. Rating 1: remove from pending only (no payout, no penalty).
+  if (rating >= 2) {
     const newPendingBalance = Math.max(0, deposit.pending_balance - jobAmount);
     const newVerifiedBalance = deposit.verified_balance + jobAmount;
     const newBalance = newVerifiedBalance + newPendingBalance;
-    
     await client.execute({
       sql: "UPDATE deposits SET pending_balance = ?, verified_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?",
       args: [newPendingBalance, newVerifiedBalance, newBalance, agentWallet, chain],
     });
-  } else if (rating <= 2) {
-    const penaltyAmount = 0.01;
+  } else {
     const newPendingBalance = Math.max(0, deposit.pending_balance - jobAmount);
-    const newVerifiedBalance = Math.max(0, deposit.verified_balance - penaltyAmount);
-    const newBalance = newVerifiedBalance + newPendingBalance;
-    
+    const newBalance = deposit.verified_balance + newPendingBalance;
     await client.execute({
-      sql: "UPDATE deposits SET pending_balance = ?, verified_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?",
-      args: [newPendingBalance, newVerifiedBalance, newBalance, agentWallet, chain],
+      sql: "UPDATE deposits SET pending_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?",
+      args: [newPendingBalance, newBalance, agentWallet, chain],
     });
   }
 }

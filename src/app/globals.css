@@ -1,12 +1,13 @@
 :root {
-  --bg: #f7f3ef;
-  --ink: #1b1a17;
-  --muted: #55514a;
-  --accent: #0a8f7f;
-  --accent-2: #f2a41c;
-  --card: #ffffff;
-  --ring: rgba(10, 143, 127, 0.25);
-  --shadow: 0 20px 60px rgba(22, 16, 10, 0.12);
+  --bg: #1a1a1a;
+  --ink: #f5f5f5;
+  --muted: #a0a0a0;
+  --accent: #ff3b3b;
+  --accent-green: #00ff7f;
+  --card: #2a2a2a;
+  --card-border: rgba(255, 255, 255, 0.08);
+  --ring: rgba(255, 59, 59, 0.35);
+  --shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
 }
 
 * {
@@ -19,9 +20,7 @@ body {
   margin: 0;
   min-height: 100%;
   color: var(--ink);
-  background: radial-gradient(1200px 600px at 10% -10%, #fce7d6 0%, transparent 60%),
-    radial-gradient(900px 700px at 90% 0%, #d9f4ef 0%, transparent 65%),
-    var(--bg);
+  background: var(--bg);
   font-family: var(--font-space), ui-sans-serif, system-ui, -apple-system, sans-serif;
 }
 
@@ -62,12 +61,12 @@ main {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  background: #fff3db;
+  background: rgba(255, 59, 59, 0.15);
   border-radius: 999px;
   padding: 8px 14px;
   font-size: 0.85rem;
-  border: 1px solid #f2d3a1;
-  color: #7d4a00;
+  border: 1px solid rgba(255, 59, 59, 0.3);
+  color: #ff6b6b;
   width: fit-content;
 }
 
@@ -82,7 +81,7 @@ main {
   border-radius: 20px;
   padding: 24px;
   box-shadow: var(--shadow);
-  border: 1px solid rgba(27, 26, 23, 0.06);
+  border: 1px solid var(--card-border);
 }
 
 .card h2 {
@@ -106,16 +105,22 @@ textarea {
   width: 100%;
   padding: 12px 14px;
   border-radius: 12px;
-  border: 1px solid rgba(27, 26, 23, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   font-size: 1rem;
   font-family: var(--font-space), ui-sans-serif, system-ui, -apple-system, sans-serif;
   transition: box-shadow 0.2s ease, border-color 0.2s ease;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ink);
 }
 
 textarea {
   min-height: 140px;
   resize: vertical;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
 }
 
 input:focus,
@@ -140,7 +145,7 @@ textarea:focus {
 
 .button:hover {
   transform: translateY(-2px);
-  box-shadow: 0 12px 24px rgba(10, 143, 127, 0.2);
+  box-shadow: 0 12px 24px rgba(255, 59, 59, 0.3);
 }
 
 /* Toggle switch styling */
@@ -176,9 +181,14 @@ input[type="checkbox"]:checked::before {
 }
 
 .secondary {
-  background: #fff;
-  border: 1px solid rgba(27, 26, 23, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   color: var(--ink);
+}
+
+.secondary:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.3);
 }
 
 .jobs {
@@ -189,10 +199,10 @@ input[type="checkbox"]:checked::before {
 .job {
   border-radius: 16px;
   padding: 16px;
-  border: 1px solid rgba(27, 26, 23, 0.08);
+  border: 1px solid var(--card-border);
   display: grid;
   gap: 8px;
-  background: linear-gradient(180deg, #fff 0%, #fbfaf8 100%);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .job h3 {
@@ -209,7 +219,7 @@ input[type="checkbox"]:checked::before {
 }
 
 .meta span {
-  background: #f1f1ec;
+  background: rgba(255, 255, 255, 0.08);
   padding: 4px 8px;
   border-radius: 999px;
 }

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
+import { getJobStatusStyle } from "@/lib/job-status";
 
 type BalanceInfo = {
   balance: number;
@@ -170,9 +171,9 @@ function AgentLookupContent() {
       <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
         {[...Array(5)].map((_, i) => {
           if (i < fullStars) {
-            return <span key={i} style={{ fontSize: "1.2rem", color: "#f2a41c" }}>★</span>;
+            return <span key={i} style={{ fontSize: "1.2rem", color: "var(--accent)" }}>★</span>;
           } else if (i === fullStars && hasHalfStar) {
-            return <span key={i} style={{ fontSize: "1.2rem", color: "#f2a41c" }}>☆</span>;
+            return <span key={i} style={{ fontSize: "1.2rem", color: "var(--accent)" }}>☆</span>;
           } else {
             return <span key={i} style={{ fontSize: "1.2rem", color: "#ddd" }}>★</span>;
           }
@@ -216,7 +217,7 @@ function AgentLookupContent() {
             </select>
           </label>
           {error && (
-            <div style={{ color: "#b42318", padding: "12px", background: "#fee4e2", borderRadius: "8px" }}>
+            <div style={{ color: "var(--accent)", padding: "12px", background: "rgba(255, 59, 59, 0.12)", borderRadius: "8px" }}>
               {error}
             </div>
           )}
@@ -252,13 +253,13 @@ function AgentLookupContent() {
                       {agent.agent_wallet.slice(0, 8)}...{agent.agent_wallet.slice(-6)}
                     </td>
                     <td style={{ padding: "12px 8px" }}>
-                      <span style={{ color: "#f2a41c" }}>★</span> {agent.average_rating.toFixed(2)}
+                      <span style={{ color: "var(--accent)" }}>★</span> {agent.average_rating.toFixed(2)}
                     </td>
                     <td style={{ padding: "12px 8px" }}>{agent.total_rated}</td>
                     <td style={{ padding: "12px 8px" }}>
                       <a
                         href={`/agent?wallet=${encodeURIComponent(agent.agent_wallet)}&chain=solana`}
-                        style={{ color: "#f2a41c", fontWeight: 600, textDecoration: "underline", fontSize: "0.9rem" }}
+                        style={{ color: "var(--accent-green)", fontWeight: 600, textDecoration: "underline", fontSize: "0.9rem" }}
                       >
                         View →
                       </a>
@@ -273,9 +274,9 @@ function AgentLookupContent() {
 
       {balanceInfo && (
         <section className="card" style={{ marginTop: "32px" }}>
-          <h2>Claw-Job balance</h2>
+          <h2>AI Agent Bounty Market balance</h2>
           <p style={{ fontSize: "0.9rem", color: "var(--muted)", marginTop: "4px", marginBottom: "20px" }}>
-            This is the amount available to withdraw from Claw-Job.
+            This is the amount available to withdraw from AI Agent Bounty Market.
           </p>
           <div style={{ display: "grid", gap: "24px" }}>
             <div>
@@ -288,33 +289,33 @@ function AgentLookupContent() {
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "20px" }}>
-              <div style={{ padding: "20px", background: "#e8f5e9", borderRadius: "12px", border: "2px solid #4caf50" }}>
-                <div style={{ fontSize: "0.85rem", color: "#2e7d32", marginBottom: "8px", fontWeight: 600 }}>
+              <div style={{ padding: "20px", background: "rgba(0, 255, 127, 0.1)", borderRadius: "12px", border: "2px solid var(--accent-green)" }}>
+                <div style={{ fontSize: "0.85rem", color: "var(--accent-green)", marginBottom: "8px", fontWeight: 600 }}>
                   ✓ Verified Balance
                 </div>
-                <div style={{ fontSize: "1.5rem", fontWeight: 700, fontFamily: "monospace", color: "#1b5e20" }}>
+                <div style={{ fontSize: "1.5rem", fontWeight: 700, fontFamily: "monospace", color: "var(--accent-green)" }}>
                   {balanceInfo.verified_balance.toFixed(4)} {chain}
                 </div>
-                <div style={{ fontSize: "0.8rem", color: "#2e7d32", marginTop: "4px" }}>
+                <div style={{ fontSize: "0.8rem", color: "var(--accent-green)", marginTop: "4px", opacity: 0.9 }}>
                   Withdrawable
                 </div>
               </div>
 
-              <div style={{ padding: "20px", background: "#fff3e0", borderRadius: "12px", border: "2px solid #ff9800" }}>
-                <div style={{ fontSize: "0.85rem", color: "#e65100", marginBottom: "8px", fontWeight: 600 }}>
+              <div style={{ padding: "20px", background: "rgba(255, 59, 59, 0.1)", borderRadius: "12px", border: "2px solid var(--accent)" }}>
+                <div style={{ fontSize: "0.85rem", color: "var(--accent)", marginBottom: "8px", fontWeight: 600 }}>
                   ⏳ Pending Balance
                 </div>
-                <div style={{ fontSize: "1.5rem", fontWeight: 700, fontFamily: "monospace", color: "#e65100" }}>
+                <div style={{ fontSize: "1.5rem", fontWeight: 700, fontFamily: "monospace", color: "var(--accent)" }}>
                   {balanceInfo.pending_balance.toFixed(4)} {chain}
                 </div>
-                <div style={{ fontSize: "0.8rem", color: "#e65100", marginTop: "4px" }}>
+                <div style={{ fontSize: "0.8rem", color: "var(--accent)", marginTop: "4px", opacity: 0.9 }}>
                   Awaiting Rating
                 </div>
               </div>
             </div>
 
-            <div style={{ padding: "12px", background: balanceInfo.canClaimJobs ? "#e8f5e9" : "#ffebee", borderRadius: "8px" }}>
-              <div style={{ fontSize: "0.9rem", fontWeight: 600, color: balanceInfo.canClaimJobs ? "#2e7d32" : "#c62828" }}>
+            <div style={{ padding: "12px", background: balanceInfo.canClaimJobs ? "rgba(0, 255, 127, 0.08)" : "rgba(255, 59, 59, 0.12)", borderRadius: "8px" }}>
+              <div style={{ fontSize: "0.9rem", fontWeight: 600, color: balanceInfo.canClaimJobs ? "var(--accent-green)" : "var(--accent)" }}>
                 {balanceInfo.canClaimJobs ? "✓ Can claim jobs" : "✗ Cannot claim paid jobs (agent wallet balance below minimum of 10 cents)"}
               </div>
             </div>
@@ -351,12 +352,12 @@ function AgentLookupContent() {
                 <div style={{ fontWeight: 600, marginBottom: "6px", fontSize: "1rem" }}>
                   {job.description}
                 </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", fontSize: "0.85rem", color: "var(--muted)" }}>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", alignItems: "center", fontSize: "0.85rem", color: "var(--muted)" }}>
                   <span>{job.amount} {job.chain}</span>
                   <span>Job #{job.job_id}</span>
-                  <span>Status: {job.job_status}</span>
+                  <span style={getJobStatusStyle(job.job_status)}>{job.job_status}</span>
                   {job.rating != null ? (
-                    <span style={{ color: "#f2a41c" }}>★ {job.rating}/5</span>
+                    <span style={{ color: "var(--accent)" }}>★ {job.rating}/5</span>
                   ) : (
                     <span>Awaiting rating</span>
                   )}
@@ -410,12 +411,12 @@ function AgentLookupContent() {
                         <div style={{ minWidth: "60px", fontSize: "0.9rem", fontWeight: 600 }}>
                           {stars} {stars === 1 ? "star" : "stars"}
                         </div>
-                        <div style={{ flex: 1, height: "24px", background: "#f1f1ec", borderRadius: "12px", overflow: "hidden", position: "relative" }}>
+                        <div style={{ flex: 1, height: "24px", background: "rgba(255,255,255,0.1)", borderRadius: "12px", overflow: "hidden", position: "relative" }}>
                           <div
                             style={{
                               width: `${percentage}%`,
                               height: "100%",
-                              background: stars >= 4 ? "#4caf50" : stars >= 3 ? "#ff9800" : "#f44336",
+                              background: stars >= 4 ? "var(--accent-green)" : stars >= 3 ? "var(--accent)" : "rgba(255,59,59,0.6)",
                               transition: "width 0.3s ease"
                             }}
                           />
@@ -434,7 +435,7 @@ function AgentLookupContent() {
       )}
 
       {(balanceInfo || ratingInfo) && (
-        <section className="card" style={{ marginTop: "32px", background: "#f8f9fa" }}>
+        <section className="card" style={{ marginTop: "32px" }}>
           <div style={{ fontSize: "0.9rem", color: "var(--muted)" }}>
             <strong>Wallet Address:</strong>{" "}
             <span style={{ fontFamily: "monospace", wordBreak: "break-all" }}>
