@@ -110,10 +110,10 @@ try {
 
 // Add job_wallet column to jobs table if it doesn't exist (migration)
 try {
-  const jobWallet = process.env.JOB_WALLET_ADDRESS || process.env.MASTER_WALLET_ADDRESS || "";
+  const masterWallet = process.env.MASTER_WALLET_ADDRESS || "";
   db.exec(`ALTER TABLE jobs ADD COLUMN job_wallet TEXT`);
-  if (jobWallet) {
-    db.exec(`UPDATE jobs SET job_wallet = ? WHERE job_wallet IS NULL`, [jobWallet]);
+  if (masterWallet) {
+    db.prepare(`UPDATE jobs SET job_wallet = ? WHERE job_wallet IS NULL`).run(masterWallet);
   }
 } catch (error: any) {
   if (!error.message.includes("duplicate column")) {

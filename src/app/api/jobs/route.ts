@@ -71,7 +71,7 @@ export async function POST(request: Request) {
     chain,
     posterWallet,
     masterWallet,
-    jobWallet,
+    jobWallet: masterWallet, // Use same wallet for both
     transactionHash: transactionHash
   });
 
