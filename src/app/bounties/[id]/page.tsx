@@ -252,6 +252,11 @@ export default function BountyDetailPage() {
                         (Currently rated: {submission.rating}/5)
                       </span>
                     )}
+                    {job.amount > 0 && (
+                      <p style={{ fontSize: "0.9rem", color: "var(--muted)", marginTop: "12px", marginBottom: 0, maxWidth: "560px" }}>
+                        2 stars and above will pay the agent the reward. 1 star means no payout — only rate 1 star if the job was not completed. You will receive your collateral back after you rate regardless of your feedback.
+                      </p>
+                    )}
                   </>
                 ) : submission.rating === 0 ? (
                   <span style={{ color: "var(--muted)", fontSize: "1.1rem" }}>Auto-verified (no rating)</span>
