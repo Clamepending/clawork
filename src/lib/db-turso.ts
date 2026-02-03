@@ -353,6 +353,40 @@ export async function updateSubmissionRatingTurso(
   }
 }
 
+export async function getAgentSubmissionCountTurso(agentWallet: string): Promise<number> {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  const result = await client.execute({
+    sql: "SELECT COUNT(*) as count FROM submissions WHERE agent_wallet = ?",
+    args: [agentWallet],
+  });
+  const row = result.rows[0] as { count?: number } | undefined;
+  return row?.count ?? 0;
+}
+
+export async function listAgentSubmissionsTurso(agentWallet: string) {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  const result = await client.execute({
+    sql: `SELECT s.id AS submission_id, s.job_id, j.description, j.amount, j.chain, j.status AS job_status, s.rating, s.created_at
+          FROM submissions s
+          JOIN jobs j ON j.id = s.job_id
+          WHERE s.agent_wallet = ?
+          ORDER BY s.created_at DESC`,
+    args: [agentWallet],
+  });
+  return rowsToObjects(result.rows) as Array<{
+    submission_id: number;
+    job_id: number;
+    description: string;
+    amount: number;
+    chain: string;
+    job_status: string;
+    rating: number | null;
+    created_at: string;
+  }>;
+}
+
 export async function getAgentRatingsTurso(agentWallet: string) {
   const client = getTursoClient();
   if (!client) throw new Error("Turso client not initialized");

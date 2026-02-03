@@ -237,14 +237,21 @@ export type DepositRecord = {
 // Check if using Turso
 const usingTurso = !!(process.env.TURSO_DB_URL && process.env.TURSO_DB_AUTH_TOKEN);
 
+// Lazy-load Turso module (required for Next.js bundler to resolve named exports)
+let tursoModule: typeof import("./db-turso") | null = null;
+async function getTurso() {
+  if (!tursoModule) tursoModule = await import("./db-turso");
+  return tursoModule;
+}
+
 // Initialize Turso schema lazily (on first use)
 let tursoSchemaInitialized = false;
 async function ensureTursoSchema() {
   if (usingTurso && !tursoSchemaInitialized && typeof window === "undefined") {
     tursoSchemaInitialized = true;
     try {
-      const { initTursoSchema } = require("./db-turso");
-      await initTursoSchema();
+      const turso = await getTurso();
+      await turso.initTursoSchema();
     } catch (err: any) {
       console.error("Failed to initialize Turso schema:", err);
     }
@@ -262,8 +269,8 @@ export async function createJob(params: {
 }) {
   if (usingTurso) {
     await ensureTursoSchema();
-    const { createJobTurso } = require("./db-turso");
-    return createJobTurso(params);
+    const turso = await getTurso();
+    return turso.createJobTurso(params);
   }
   const privateId = generatePrivateId();
   const isFreeTask = params.amount === 0;
@@ -328,16 +335,16 @@ export type PosterPaymentRecord = {
 
 export async function getPosterPayment(jobId: number) {
   if (usingTurso) {
-    const { getPosterPaymentTurso } = require("./db-turso");
-    return getPosterPaymentTurso(jobId);
+    const turso = await getTurso();
+    return turso.getPosterPaymentTurso(jobId);
   }
   return db.prepare("SELECT * FROM poster_payments WHERE job_id = ?").get(jobId) as PosterPaymentRecord | undefined;
 }
 
 export async function returnPosterCollateral(jobId: number, chain: string) {
   if (usingTurso) {
-    const { returnPosterCollateralTurso } = require("./db-turso");
-    return returnPosterCollateralTurso(jobId, chain);
+    const turso = await getTurso();
+    return turso.returnPosterCollateralTurso(jobId, chain);
   }
   const payment = await getPosterPayment(jobId);
   if (!payment || payment.collateral_returned) {
@@ -376,8 +383,8 @@ export async function returnPosterCollateral(jobId: number, chain: string) {
 export async function listJobs(status?: string) {
   if (usingTurso) {
     await ensureTursoSchema();
-    const { listJobsTurso } = require("./db-turso");
-    return listJobsTurso(status);
+    const turso = await getTurso();
+    return turso.listJobsTurso(status);
   }
   
   if (status) {
@@ -394,16 +401,16 @@ export async function listJobs(status?: string) {
 export async function getJob(id: number) {
   if (usingTurso) {
     await ensureTursoSchema();
-    const { getJobTurso } = require("./db-turso");
-    return getJobTurso(id);
+    const turso = await getTurso();
+    return turso.getJobTurso(id);
   }
   return db.prepare("SELECT * FROM jobs WHERE id = ?").get(id) as JobRecord | undefined;
 }
 
 export async function getJobByPrivateId(privateId: string) {
   if (usingTurso) {
-    const { getJobByPrivateIdTurso } = require("./db-turso");
-    return getJobByPrivateIdTurso(privateId);
+    const turso = await getTurso();
+    return turso.getJobByPrivateIdTurso(privateId);
   }
   return db.prepare("SELECT * FROM jobs WHERE private_id = ?").get(privateId) as JobRecord | undefined;
 }
@@ -416,8 +423,8 @@ export async function createSubmission(params: {
   chain: string;
 }) {
   if (usingTurso) {
-    const { createSubmissionTurso } = require("./db-turso");
-    return createSubmissionTurso(params);
+    const turso = await getTurso();
+    return turso.createSubmissionTurso(params);
   }
   // Set rating deadline to 24 hours from now
   const createdAt = new Date().toISOString();
@@ -459,10 +466,46 @@ export function listSubmissions(jobId: number) {
     .all(jobId) as SubmissionRecord[];
 }
 
+export async function getAgentSubmissionCount(agentWallet: string): Promise<number> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.getAgentSubmissionCountTurso(agentWallet);
+  }
+  const row = db.prepare("SELECT COUNT(*) as count FROM submissions WHERE agent_wallet = ?").get(agentWallet) as { count: number };
+  return row?.count ?? 0;
+}
+
+export type AgentSubmissionRow = {
+  submission_id: number;
+  job_id: number;
+  description: string;
+  amount: number;
+  chain: string;
+  job_status: string;
+  rating: number | null;
+  created_at: string;
+};
+
+export async function listAgentSubmissions(agentWallet: string): Promise<AgentSubmissionRow[]> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.listAgentSubmissionsTurso(agentWallet);
+  }
+  return db
+    .prepare(
+      `SELECT s.id AS submission_id, s.job_id, j.description, j.amount, j.chain, j.status AS job_status, s.rating, s.created_at
+       FROM submissions s
+       JOIN jobs j ON j.id = s.job_id
+       WHERE s.agent_wallet = ?
+       ORDER BY s.created_at DESC`
+    )
+    .all(agentWallet) as AgentSubmissionRow[];
+}
+
 export async function getAgentRatings(agentWallet: string) {
   if (usingTurso) {
-    const { getAgentRatingsTurso } = require("./db-turso");
-    return getAgentRatingsTurso(agentWallet);
+    const turso = await getTurso();
+    return turso.getAgentRatingsTurso(agentWallet);
   }
   const submissions = db
     .prepare("SELECT rating, created_at FROM submissions WHERE agent_wallet = ? AND rating IS NOT NULL ORDER BY created_at DESC")
@@ -496,8 +539,8 @@ export type TopAgentRow = {
 export async function listTopRatedAgents(limit: number = 50): Promise<TopAgentRow[]> {
   if (usingTurso) {
     await ensureTursoSchema();
-    const { listTopRatedAgentsTurso } = require("./db-turso");
-    return listTopRatedAgentsTurso(limit);
+    const turso = await getTurso();
+    return turso.listTopRatedAgentsTurso(limit);
   }
   const rows = db
     .prepare(
@@ -514,8 +557,8 @@ export async function listTopRatedAgents(limit: number = 50): Promise<TopAgentRo
 
 export async function getSubmission(jobId: number) {
   if (usingTurso) {
-    const { getSubmissionTurso } = require("./db-turso");
-    return getSubmissionTurso(jobId);
+    const turso = await getTurso();
+    return turso.getSubmissionTurso(jobId);
   }
   return db
     .prepare("SELECT * FROM submissions WHERE job_id = ? ORDER BY created_at DESC LIMIT 1")
@@ -530,8 +573,8 @@ export async function getSubmissionByJobPrivateId(privateId: string) {
 
 export async function updateSubmissionRating(submissionId: number, rating: number, jobAmount: number, agentWallet: string, chain: string, posterWallet: string | null) {
   if (usingTurso) {
-    const { updateSubmissionRatingTurso } = require("./db-turso");
-    return updateSubmissionRatingTurso(submissionId, rating, jobAmount, agentWallet, chain, posterWallet);
+    const turso = await getTurso();
+    return turso.updateSubmissionRatingTurso(submissionId, rating, jobAmount, agentWallet, chain, posterWallet);
   }
   const stmt = db.prepare("UPDATE submissions SET rating = ? WHERE id = ?");
   stmt.run(rating, submissionId);
@@ -583,8 +626,8 @@ export async function updateSubmissionRating(submissionId: number, rating: numbe
 
 export async function checkAndApplyLateRatingPenalties() {
   if (usingTurso) {
-    const { checkAndApplyLateRatingPenaltiesTurso } = require("./db-turso");
-    return checkAndApplyLateRatingPenaltiesTurso();
+    const turso = await getTurso();
+    return turso.checkAndApplyLateRatingPenaltiesTurso();
   }
   const now = new Date().toISOString();
   // Find all unrated submissions past their deadline
@@ -622,8 +665,8 @@ export async function checkAndApplyLateRatingPenalties() {
 
 export async function updateJobStatus(jobId: number, status: string) {
   if (usingTurso) {
-    const { updateJobStatusTurso } = require("./db-turso");
-    return updateJobStatusTurso(jobId, status);
+    const turso = await getTurso();
+    return turso.updateJobStatusTurso(jobId, status);
   }
   const stmt = db.prepare("UPDATE jobs SET status = ? WHERE id = ?");
   stmt.run(status, jobId);
@@ -637,8 +680,8 @@ export async function createDeposit(params: {
   status?: string;
 }) {
   if (usingTurso) {
-    const { createDepositTurso } = require("./db-turso");
-    return createDepositTurso(params);
+    const turso = await getTurso();
+    return turso.createDepositTurso(params);
   }
   // Check if deposit already exists
   const existing = await getDeposit(params.walletAddress, params.chain);
@@ -702,8 +745,8 @@ export async function createDeposit(params: {
 export async function getDeposit(walletAddress: string, chain: string) {
   if (usingTurso) {
     await ensureTursoSchema();
-    const { getDepositTurso } = require("./db-turso");
-    return getDepositTurso(walletAddress, chain);
+    const turso = await getTurso();
+    return turso.getDepositTurso(walletAddress, chain);
   }
   return db
     .prepare("SELECT * FROM deposits WHERE wallet_address = ? AND chain = ?")
@@ -717,8 +760,8 @@ export async function hasSufficientCollateral(walletAddress: string, chain: stri
 
 export async function getWalletBalance(walletAddress: string, chain: string): Promise<number> {
   if (usingTurso) {
-    const { getWalletBalanceTurso } = require("./db-turso");
-    return getWalletBalanceTurso(walletAddress, chain);
+    const turso = await getTurso();
+    return turso.getWalletBalanceTurso(walletAddress, chain);
   }
   const deposit = await getDeposit(walletAddress, chain);
   return deposit ? deposit.balance : 0;
@@ -726,8 +769,8 @@ export async function getWalletBalance(walletAddress: string, chain: string): Pr
 
 export async function getWalletBalances(walletAddress: string, chain: string): Promise<{ balance: number; pending_balance: number; verified_balance: number }> {
   if (usingTurso) {
-    const { getWalletBalancesTurso } = require("./db-turso");
-    return getWalletBalancesTurso(walletAddress, chain);
+    const turso = await getTurso();
+    return turso.getWalletBalancesTurso(walletAddress, chain);
   }
   const deposit = await getDeposit(walletAddress, chain);
   return deposit ? {
@@ -773,8 +816,8 @@ export async function hasPositiveBalance(walletAddress: string, chain: string): 
 
 export async function listDeposits(walletAddress?: string) {
   if (usingTurso) {
-    const { listDepositsTurso } = require("./db-turso");
-    return listDepositsTurso(walletAddress);
+    const turso = await getTurso();
+    return turso.listDepositsTurso(walletAddress);
   }
   if (walletAddress) {
     return db
@@ -806,8 +849,8 @@ export async function createWithdrawal(params: {
   status?: string;
 }) {
   if (usingTurso) {
-    const { createWithdrawalTurso } = require("./db-turso");
-    return createWithdrawalTurso(params);
+    const turso = await getTurso();
+    return turso.createWithdrawalTurso(params);
   }
   const stmt = db.prepare(
     `INSERT INTO withdrawals (wallet_address, amount, chain, destination_wallet, transaction_hash, status, created_at)
@@ -833,8 +876,8 @@ export async function createWithdrawal(params: {
 
 export async function processWithdrawal(walletAddress: string, chain: string, amount: number): Promise<{ success: boolean; error?: string; newBalance?: number; newVerifiedBalance?: number }> {
   if (usingTurso) {
-    const { processWithdrawalTurso } = require("./db-turso");
-    return processWithdrawalTurso(walletAddress, chain, amount);
+    const turso = await getTurso();
+    return turso.processWithdrawalTurso(walletAddress, chain, amount);
   }
   const deposit = await getDeposit(walletAddress, chain);
   if (!deposit) {
@@ -871,8 +914,8 @@ export async function processWithdrawal(walletAddress: string, chain: string, am
 
 export async function listWithdrawals(walletAddress?: string) {
   if (usingTurso) {
-    const { listWithdrawalsTurso } = require("./db-turso");
-    return listWithdrawalsTurso(walletAddress);
+    const turso = await getTurso();
+    return turso.listWithdrawalsTurso(walletAddress);
   }
   if (walletAddress) {
     return db
@@ -887,8 +930,8 @@ export async function listWithdrawals(walletAddress?: string) {
 export async function deleteJob(privateId: string, posterWallet: string): Promise<{ success: boolean; error?: string; message?: string; collateral_returned?: number }> {
   if (usingTurso) {
     await ensureTursoSchema();
-    const { deleteJobTurso } = require("./db-turso");
-    return deleteJobTurso(privateId, posterWallet);
+    const turso = await getTurso();
+    return turso.deleteJobTurso(privateId, posterWallet);
   }
 
   // Get the job

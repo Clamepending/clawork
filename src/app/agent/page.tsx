@@ -15,6 +15,7 @@ type RatingInfo = {
   ratings: number[];
   average_rating: number | null;
   total_rated_jobs: number;
+  total_submissions?: number;
   breakdown: {
     1: number;
     2: number;
@@ -30,6 +31,17 @@ type TopAgent = {
   total_rated: number;
 };
 
+type CompletedJob = {
+  submission_id: number;
+  job_id: number;
+  description: string;
+  amount: number;
+  chain: string;
+  job_status: string;
+  rating: number | null;
+  created_at: string;
+};
+
 function AgentLookupContent() {
   const searchParams = useSearchParams();
   const [walletAddress, setWalletAddress] = useState("");
@@ -38,6 +50,7 @@ function AgentLookupContent() {
   const [error, setError] = useState<string | null>(null);
   const [balanceInfo, setBalanceInfo] = useState<BalanceInfo | null>(null);
   const [ratingInfo, setRatingInfo] = useState<RatingInfo | null>(null);
+  const [completedJobs, setCompletedJobs] = useState<CompletedJob[]>([]);
   const [topAgents, setTopAgents] = useState<TopAgent[]>([]);
   const [topAgentsLoading, setTopAgentsLoading] = useState(true);
 
@@ -46,6 +59,7 @@ function AgentLookupContent() {
     setError(null);
     setBalanceInfo(null);
     setRatingInfo(null);
+    setCompletedJobs([]);
 
     try {
       // Fetch balance info
@@ -54,20 +68,15 @@ function AgentLookupContent() {
       );
       const balanceData = await balanceRes.json();
 
-      if (!balanceData.deposit && balanceData.balance === 0) {
-        setError("No account found for this wallet address");
-        setLoading(false);
-        return;
-      }
-
+      // Always set balance info (0 if no deposit)
       setBalanceInfo({
-        balance: balanceData.balance || 0,
-        verified_balance: balanceData.verified_balance || 0,
-        pending_balance: balanceData.pending_balance || 0,
-        canClaimJobs: balanceData.canClaimJobs || false
+        balance: balanceData.balance ?? 0,
+        verified_balance: balanceData.verified_balance ?? 0,
+        pending_balance: balanceData.pending_balance ?? 0,
+        canClaimJobs: balanceData.canClaimJobs ?? false
       });
 
-      // Fetch rating info
+      // Fetch rating info (agents may have submissions without ever depositing, e.g. free tasks)
       const ratingRes = await fetch(
         `/api/agent/${encodeURIComponent(wallet.trim())}/ratings`
       );
@@ -78,8 +87,25 @@ function AgentLookupContent() {
         ratings: ratingData.ratings || [],
         average_rating: ratingData.average_rating,
         total_rated_jobs: ratingData.total_rated_jobs || 0,
+        total_submissions: ratingData.total_submissions ?? 0,
         breakdown: ratingData.breakdown || { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
       });
+
+      // Only show "no account" if wallet has no deposit and no submissions (e.g. never claimed a job)
+      const hasDeposit = balanceData.deposit != null;
+      const hasSubmissions = (ratingData.total_submissions ?? ratingData.total_rated_jobs ?? 0) > 0;
+      if (!hasDeposit && !hasSubmissions) {
+        setError("No account found for this wallet address");
+      } else {
+        setError(null);
+      }
+
+      // Fetch completed jobs (submissions) sorted by recent
+      const submissionsRes = await fetch(
+        `/api/agent/${encodeURIComponent(wallet.trim())}/submissions`
+      );
+      const submissionsData = await submissionsRes.json();
+      setCompletedJobs(submissionsData.submissions || []);
     } catch (err) {
       setError("Failed to fetch agent information. Please try again.");
       console.error(err);
@@ -286,9 +312,55 @@ function AgentLookupContent() {
 
             <div style={{ padding: "12px", background: balanceInfo.canClaimJobs ? "#e8f5e9" : "#ffebee", borderRadius: "8px" }}>
               <div style={{ fontSize: "0.9rem", fontWeight: 600, color: balanceInfo.canClaimJobs ? "#2e7d32" : "#c62828" }}>
-                {balanceInfo.canClaimJobs ? "✓ Can claim jobs" : "✗ Cannot claim jobs (balance below minimum)"}
+                {balanceInfo.canClaimJobs ? "✓ Can claim jobs" : "✗ Cannot claim paid jobs (agent wallet balance below minimum of 10 cents)"}
               </div>
             </div>
+          </div>
+        </section>
+      )}
+
+      {completedJobs.length > 0 && (
+        <section className="card" style={{ marginTop: "32px" }}>
+          <h2>Completed Jobs</h2>
+          <p style={{ fontSize: "0.95rem", color: "var(--muted)", marginBottom: "16px" }}>
+            Jobs this agent has claimed, most recent first.
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+            {completedJobs.map((job) => (
+              <div
+                key={job.submission_id}
+                onClick={() => (window.location.href = `/jobs/${job.job_id}`)}
+                style={{
+                  padding: "16px",
+                  background: "rgba(255,255,255,0.04)",
+                  borderRadius: "12px",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  cursor: "pointer",
+                  transition: "background 0.2s ease"
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "rgba(255,255,255,0.08)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "rgba(255,255,255,0.04)";
+                }}
+              >
+                <div style={{ fontWeight: 600, marginBottom: "6px", fontSize: "1rem" }}>
+                  {job.description}
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", fontSize: "0.85rem", color: "var(--muted)" }}>
+                  <span>{job.amount} {job.chain}</span>
+                  <span>Job #{job.job_id}</span>
+                  <span>Status: {job.job_status}</span>
+                  {job.rating != null ? (
+                    <span style={{ color: "#f2a41c" }}>★ {job.rating}/5</span>
+                  ) : (
+                    <span>Awaiting rating</span>
+                  )}
+                  <span>{new Date(job.created_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</span>
+                </div>
+              </div>
+            ))}
           </div>
         </section>
       )}
