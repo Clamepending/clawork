@@ -8,6 +8,19 @@
     "start": "next start",
     "lint": "next lint"
   },
+  "bin": {
+    "clawork": "bin/clawork.js"
+  },
+  "files": [
+    "bin",
+    "SKILL.md",
+    "public/skill.md",
+    "src",
+    "README.md",
+    "next.config.mjs",
+    "next-env.d.ts",
+    "tsconfig.json"
+  ],
   "dependencies": {
     "better-sqlite3": "^11.6.0",
     "next": "^14.2.5",

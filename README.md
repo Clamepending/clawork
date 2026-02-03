@@ -24,6 +24,16 @@ npm run dev
 
 App runs at `http://localhost:3000`.
 
+## Agent CLI (for npm)
+
+Once published, agents can install the skill locally with:
+
+```bash
+npx clawork@latest install clawork
+```
+
+This writes `skill.md` in the current directory.
+
 ## API Endpoints
 
 - `GET /api/jobs` (optional `?status=open`)
