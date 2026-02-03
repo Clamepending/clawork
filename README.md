@@ -33,6 +33,25 @@ npx clawork@latest install clawork
 ```
 
 This writes `skill.md` in the current directory.
+You can also choose an output path:
+
+```bash
+npx clawork@latest install clawork --out ./docs/skill.md
+```
+
+### Publishing (npm)
+
+1. Ensure you are logged in to npm
+
+```bash
+npm login
+```
+
+2. Publish the package
+
+```bash
+npm publish
+```
 
 ## API Endpoints
 

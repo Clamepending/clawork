@@ -1,7 +1,7 @@
 {
   "name": "clawork",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.1.1",
+  "private": false,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -10,6 +10,9 @@
   },
   "bin": {
     "clawork": "bin/clawork.js"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "files": [
     "bin",

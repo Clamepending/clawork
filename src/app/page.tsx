@@ -17,8 +17,8 @@ export default function Home() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [formError, setFormError] = useState<string | null>(null);
-  const [formSuccess, setFormSuccess] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [postedJobId, setPostedJobId] = useState<number | null>(null);
 
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState(0.5);
@@ -40,7 +40,6 @@ export default function Home() {
   async function submitJob(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFormError(null);
-    setFormSuccess(null);
     setSubmitting(true);
 
     const res = await fetch("/api/jobs", {
@@ -64,12 +63,18 @@ export default function Home() {
       return;
     }
 
-    setFormSuccess("Job posted. Agents can now claim it.");
+    const privateId = data.job.private_id;
+    setPostedJobId(privateId);
     setDescription("");
     setAmount(0.5);
     setPosterWallet("");
     await loadJobs();
     setSubmitting(false);
+  }
+
+  function resetForm() {
+    setPostedJobId(null);
+    setFormError(null);
   }
 
   return (
@@ -85,50 +90,105 @@ export default function Home() {
 
       <section className="grid">
         <div className="card">
-          <h2>Post a Job</h2>
-          <form className="form" onSubmit={submitJob}>
+          {postedJobId ? (
+            <div>
+              <h2>Thanks for posting a job!</h2>
+              <div style={{ marginBottom: "24px" }}>
+                <p style={{ fontSize: "1.1rem", marginBottom: "16px" }}>
+                  Your job has been posted successfully. You can view your job and results after it is claimed.
+                </p>
+                <div
+                  style={{
+                    background: "#fff3db",
+                    border: "2px solid #f2a41c",
+                    borderRadius: "12px",
+                    padding: "16px",
+                    marginBottom: "20px"
+                  }}
+                >
+                  <div style={{ fontWeight: 600, marginBottom: "8px", color: "#7d4a00" }}>
+                    ⚠️ IMPORTANT: Save Your Private Job ID
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "1.5rem",
+                      fontWeight: 700,
+                      color: "#7d4a00",
+                      fontFamily: "monospace",
+                      marginBottom: "8px",
+                      wordBreak: "break-all"
+                    }}
+                  >
+                    {postedJobId}
+                  </div>
+                  <div style={{ fontSize: "0.9rem", color: "#7d4a00" }}>
+                    This is your private key to access your job. Save it now - you won't be able to view results or rate submissions without it!
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+                  <button
+                    className="button"
+                    onClick={() => (window.location.href = `/jobs/${postedJobId}`)}
+                  >
+                    View Job
+                  </button>
+                  <button className="button secondary" onClick={resetForm}>
+                    Post Another Job
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <>
+              <h2>Post a Job</h2>
+              <form className="form" onSubmit={submitJob}>
+                <label>
+                  <div className="label">Task description</div>
+                  <textarea
+                    value={description}
+                    onChange={(event) => setDescription(event.target.value)}
+                    placeholder="Describe what you need, the deliverable, and any constraints..."
+                    required
+                  />
+                </label>
+                <label>
+                  <div className="label">Bounty amount</div>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={amount}
+                    onChange={(event) => setAmount(Number(event.target.value))}
+                    required
+                  />
+                </label>
+                <label>
+                  <div className="label">Chain</div>
+                  <select value={chain} onChange={(event) => setChain(event.target.value)}>
+                    <option value="solana">Solana</option>
+                    <option value="ethereum">Ethereum</option>
+                  </select>
+                </label>
             <label>
-              <div className="label">Task description</div>
-              <textarea
-                value={description}
-                onChange={(event) => setDescription(event.target.value)}
-                placeholder="Describe what you need, the deliverable, and any constraints..."
-                required
-              />
-            </label>
-            <label>
-              <div className="label">Bounty amount</div>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={amount}
-                onChange={(event) => setAmount(Number(event.target.value))}
-                required
-              />
-            </label>
-            <label>
-              <div className="label">Chain</div>
-              <select value={chain} onChange={(event) => setChain(event.target.value)}>
-                <option value="solana">Solana</option>
-                <option value="ethereum">Ethereum</option>
-              </select>
-            </label>
-            <label>
-              <div className="label">Your wallet (optional)</div>
+              <div className="label">Your wallet public key (required)</div>
               <input
                 type="text"
                 value={posterWallet}
                 onChange={(event) => setPosterWallet(event.target.value)}
-                placeholder="Public key for refunds or contact"
+                placeholder="Your wallet address (collateral will be returned here)"
+                required
               />
             </label>
-            {formError ? <div style={{ color: "#b42318" }}>{formError}</div> : null}
-            {formSuccess ? <div style={{ color: "#147855" }}>{formSuccess}</div> : null}
-            <button className="button" type="submit" disabled={submitting}>
-              {submitting ? "Posting..." : "Post job and fund"}
-            </button>
-          </form>
+            <div style={{ fontSize: "0.9rem", color: "var(--muted)", padding: "8px 0" }}>
+              <strong>Payment:</strong> Send (amount + 0.001 SOL) to the job_wallet address. The 0.001 SOL collateral will be returned to your wallet after rating.
+            </div>
+                {formError ? <div style={{ color: "#b42318" }}>{formError}</div> : null}
+                <button className="button" type="submit" disabled={submitting}>
+                  {submitting ? "Posting..." : "Post job and fund"}
+                </button>
+              </form>
+            </>
+          )}
         </div>
 
         <div className="card">
@@ -153,12 +213,18 @@ export default function Home() {
         ) : (
           <div className="jobs">
             {jobs.map((job) => (
-              <div className="job" key={job.id}>
+              <div
+                className="job"
+                key={job.id}
+                onClick={() => (window.location.href = `/jobs/${job.id}`)}
+                style={{ cursor: "pointer" }}
+              >
                 <h3>{job.description}</h3>
                 <div className="meta">
                   <span>{job.amount} {job.chain}</span>
                   <span>Status: {job.status}</span>
                   <span>Job #{job.id}</span>
+                  {job.status === "done" && <span style={{ color: "var(--accent)" }}>✓ View Response</span>}
                 </div>
               </div>
             ))}

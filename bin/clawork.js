@@ -7,6 +7,8 @@ const args = process.argv.slice(2);
 const command = args[0];
 const target = args[1];
 const force = args.includes("--force");
+const outIndex = args.indexOf("--out");
+const outPathArg = outIndex !== -1 ? args[outIndex + 1] : null;
 
 const skillPath = path.resolve(__dirname, "..", "SKILL.md");
 
@@ -14,13 +16,14 @@ function printHelp() {
   console.log("Clawork CLI");
   console.log("");
   console.log("Usage:");
-  console.log("  clawork install clawork [--force]");
+  console.log("  clawork install clawork [--force] [--out <path>]");
   console.log("");
   console.log("Commands:");
   console.log("  install clawork   Write the Clawork SKILL file to ./skill.md");
   console.log("");
   console.log("Options:");
   console.log("  --force           Overwrite existing skill.md");
+  console.log("  --out             Write to a specific file path");
 }
 
 if (!command || command === "help" || command === "--help") {
@@ -38,7 +41,9 @@ if (!fs.existsSync(skillPath)) {
   process.exit(1);
 }
 
-const outputPath = path.resolve(process.cwd(), "skill.md");
+const outputPath = outPathArg
+  ? path.resolve(process.cwd(), outPathArg)
+  : path.resolve(process.cwd(), "skill.md");
 if (fs.existsSync(outputPath) && !force) {
   console.error("skill.md already exists. Use --force to overwrite.");
   process.exit(1);
