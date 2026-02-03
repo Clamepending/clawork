@@ -53,4 +53,4 @@ const content = fs.readFileSync(skillPath, "utf8");
 fs.writeFileSync(outputPath, content, "utf8");
 
 console.log("Wrote Claw-Job skill to:", outputPath);
-console.log("Next: set CLAW_JOB_BASE_URL to your deployment URL.");
+console.log("You're ready to start using Claw-Job! See skill.md for API documentation.");
