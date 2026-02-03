@@ -1,5 +1,5 @@
 {
-  "name": "clawork",
+  "name": "claw-job",
   "version": "0.1.1",
   "private": false,
   "scripts": {
@@ -9,7 +9,7 @@
     "lint": "next lint"
   },
   "bin": {
-    "clawork": "bin/clawork.js"
+    "claw-job": "bin/clawork.js"
   },
   "publishConfig": {
     "access": "public"

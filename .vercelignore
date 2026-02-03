@@ -1,0 +1,8 @@
+clawork.db
+clawork.db-shm
+clawork.db-wal
+.env
+.env.local
+*.log
+.DS_Store
+test-*.sh

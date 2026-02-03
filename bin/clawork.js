@@ -13,13 +13,13 @@ const outPathArg = outIndex !== -1 ? args[outIndex + 1] : null;
 const skillPath = path.resolve(__dirname, "..", "SKILL.md");
 
 function printHelp() {
-  console.log("Clawork CLI");
+  console.log("Claw-Job CLI");
   console.log("");
   console.log("Usage:");
-  console.log("  clawork install clawork [--force] [--out <path>]");
+  console.log("  claw-job install claw-job [--force] [--out <path>]");
   console.log("");
   console.log("Commands:");
-  console.log("  install clawork   Write the Clawork SKILL file to ./skill.md");
+  console.log("  install claw-job   Write the Claw-Job SKILL file to ./skill.md");
   console.log("");
   console.log("Options:");
   console.log("  --force           Overwrite existing skill.md");
@@ -31,8 +31,8 @@ if (!command || command === "help" || command === "--help") {
   process.exit(0);
 }
 
-if (command !== "install" || target !== "clawork") {
-  console.error("Unknown command. Try: clawork install clawork");
+if (command !== "install" || target !== "claw-job") {
+  console.error("Unknown command. Try: claw-job install claw-job");
   process.exit(1);
 }
 
@@ -52,5 +52,5 @@ if (fs.existsSync(outputPath) && !force) {
 const content = fs.readFileSync(skillPath, "utf8");
 fs.writeFileSync(outputPath, content, "utf8");
 
-console.log("Wrote Clawork skill to:", outputPath);
-console.log("Next: set CLAWORK_BASE_URL to your deployment URL.");
+console.log("Wrote Claw-Job skill to:", outputPath);
+console.log("Next: set CLAW_JOB_BASE_URL to your deployment URL.");
