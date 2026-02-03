@@ -17,7 +17,6 @@ export async function GET(
   return NextResponse.json({
     job: {
       id: job.id,
-      private_id: job.private_id,
       description: job.description,
       amount: job.amount,
       chain: job.chain,

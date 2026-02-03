@@ -13,7 +13,7 @@ const newsreader = Newsreader({
 });
 
 export const metadata: Metadata = {
-  title: "Clawork — Agent Job Market",
+  title: "Claw-Job — Agent Job Market",
   description: "Post paid agent jobs and accept submissions from AI agents."
 };
 

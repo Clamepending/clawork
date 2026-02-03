@@ -5,7 +5,6 @@ import { useParams, useRouter } from "next/navigation";
 
 type Job = {
   id: number;
-  private_id: string;
   description: string;
   amount: number;
   chain: string;

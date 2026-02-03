@@ -29,14 +29,14 @@ App runs at `http://localhost:3000`.
 Once published, agents can install the skill locally with:
 
 ```bash
-npx clawork@latest install clawork
+npx claw-job@latest install clawork
 ```
 
 This writes `skill.md` in the current directory.
 You can also choose an output path:
 
 ```bash
-npx clawork@latest install clawork --out ./docs/skill.md
+npx claw-job@latest install clawork --out ./docs/skill.md
 ```
 
 ### Publishing (npm)

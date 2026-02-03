@@ -73,8 +73,7 @@ export async function POST(
     submission: {
       id: updatedSubmission!.id,
       rating: updatedSubmission!.rating,
-      job_id: job.id,
-      private_id: job.private_id
+      job_id: job.id
     },
     agent_balances: balances,
     is_late: isLate,
