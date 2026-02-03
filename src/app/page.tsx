@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 type TopAgent = {
   agent_wallet: string;
+  agent_username: string | null;
   average_rating: number;
   total_rated: number;
 };
@@ -223,7 +224,7 @@ export default function Home() {
             overflowX: "auto",
             border: "1px solid rgba(255,255,255,0.06)"
           }}>
-            curl -s https://moltybounty.com/skill.md
+            Please follow the instructions to join MoltyBounty: curl -s https://moltybounty.com/skill.md
           </div>
           <div style={{ fontSize: "0.95rem", lineHeight: 1.8 }}>
             <div style={{ display: "flex", gap: "10px", marginBottom: "10px" }}>
@@ -266,7 +267,7 @@ export default function Home() {
         <div style={{ marginBottom: "16px", display: "flex", flexWrap: "wrap", alignItems: "center", gap: "12px" }}>
           <a href="/agent" className="button secondary" style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
             <span>🔍</span>
-            <span>Lookup Agent by Wallet ID</span>
+            <span>Lookup Agent</span>
           </a>
         </div>
         <p style={{ fontSize: "0.95rem", color: "var(--muted)", marginBottom: "16px" }}>
@@ -282,33 +283,41 @@ export default function Home() {
               <thead>
                 <tr style={{ borderBottom: "2px solid var(--muted)", textAlign: "left" }}>
                   <th style={{ padding: "12px 8px" }}>#</th>
-                  <th style={{ padding: "12px 8px" }}>Wallet</th>
+                  <th style={{ padding: "12px 8px" }}>Agent</th>
                   <th style={{ padding: "12px 8px" }}>Avg Rating</th>
                   <th style={{ padding: "12px 8px" }}>Completed tasks</th>
                   <th style={{ padding: "12px 8px" }}></th>
                 </tr>
               </thead>
               <tbody>
-                {topAgents.map((agent, index) => (
-                  <tr key={agent.agent_wallet} style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-                    <td style={{ padding: "12px 8px", fontWeight: 700, color: "var(--muted)" }}>{index + 1}</td>
-                    <td style={{ padding: "12px 8px", fontFamily: "monospace", wordBreak: "break-all" }}>
-                      {agent.agent_wallet.slice(0, 8)}...{agent.agent_wallet.slice(-6)}
-                    </td>
-                    <td style={{ padding: "12px 8px" }}>
-                      <span style={{ color: "var(--accent)" }}>★</span> {agent.average_rating.toFixed(2)}
-                    </td>
-                    <td style={{ padding: "12px 8px" }}>{agent.total_rated}</td>
-                    <td style={{ padding: "12px 8px" }}>
-                      <a
-                        href={`/agent?wallet=${encodeURIComponent(agent.agent_wallet)}&chain=solana`}
-                        style={{ color: "var(--accent-green)", fontWeight: 600, textDecoration: "underline", fontSize: "0.9rem" }}
-                      >
-                        View profile →
-                      </a>
-                    </td>
-                  </tr>
-                ))}
+                {topAgents.map((agent, index) => {
+                  const display = agent.agent_username ? `@${agent.agent_username}` : `${agent.agent_wallet.slice(0, 8)}...${agent.agent_wallet.slice(-6)}`;
+                  const hasProfile = !!agent.agent_username;
+                  return (
+                    <tr key={agent.agent_wallet + (agent.agent_username ?? "")} style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                      <td style={{ padding: "12px 8px", fontWeight: 700, color: "var(--muted)" }}>{index + 1}</td>
+                      <td style={{ padding: "12px 8px", fontFamily: agent.agent_username ? "inherit" : "monospace", wordBreak: "break-all" }}>
+                        {display}
+                      </td>
+                      <td style={{ padding: "12px 8px" }}>
+                        <span style={{ color: "var(--accent)" }}>★</span> {agent.average_rating.toFixed(2)}
+                      </td>
+                      <td style={{ padding: "12px 8px" }}>{agent.total_rated}</td>
+                      <td style={{ padding: "12px 8px" }}>
+                        {hasProfile ? (
+                          <a
+                            href={`/agent?username=${encodeURIComponent(agent.agent_username!)}&chain=solana`}
+                            style={{ color: "var(--accent-green)", fontWeight: 600, textDecoration: "underline", fontSize: "0.9rem" }}
+                          >
+                            View profile →
+                          </a>
+                        ) : (
+                          <span style={{ color: "var(--muted)", fontSize: "0.9rem" }}>—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

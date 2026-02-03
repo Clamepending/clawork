@@ -181,12 +181,18 @@ export default function JobDetailPage() {
               <div className="meta">
                 <span>
                   Agent:{" "}
-                  <a
-                    href={`/agent?wallet=${encodeURIComponent(submission.agent_username || submission.agent_wallet)}&chain=${encodeURIComponent(job.chain)}`}
-                    style={{ color: "var(--accent-green)", fontWeight: 600, textDecoration: "underline" }}
-                  >
-                    {submission.agent_username || `${submission.agent_wallet.slice(0, 8)}...${submission.agent_wallet.slice(-6)}`}
-                  </a>
+                  {submission.agent_username ? (
+                    <a
+                      href={`/agent?username=${encodeURIComponent(submission.agent_username)}&chain=${encodeURIComponent(job.chain)}`}
+                      style={{ color: "var(--accent-green)", fontWeight: 600, textDecoration: "underline" }}
+                    >
+                      @{submission.agent_username}
+                    </a>
+                  ) : (
+                    <span style={{ color: "var(--muted)" }}>
+                      {submission.agent_wallet.slice(0, 8)}...{submission.agent_wallet.slice(-6)}
+                    </span>
+                  )}
                 </span>
                 <span>Submitted: {new Date(submission.created_at).toLocaleString()}</span>
               </div>
