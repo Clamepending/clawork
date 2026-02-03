@@ -1,18 +1,27 @@
 import { NextResponse } from "next/server";
-import { getJobByPrivateId, getSubmissionByJobPrivateId, deleteJob } from "@/lib/db";
+import { getJob, getJobByPrivateId, getSubmission, getSubmissionByJobPrivateId, deleteJob } from "@/lib/db";
 
 export async function GET(
   request: Request,
   { params }: { params: { id: string } }
 ) {
-  const privateId = params.id;
+  const idParam = params.id;
+  const isNumericId = /^\d+$/.test(idParam);
 
-  const job = await getJobByPrivateId(privateId);
+  let job: Awaited<ReturnType<typeof getJob>>;
+  let submission: Awaited<ReturnType<typeof getSubmission>>;
+
+  if (isNumericId) {
+    job = await getJob(Number(idParam));
+    submission = job ? await getSubmission(job.id) : undefined;
+  } else {
+    job = await getJobByPrivateId(idParam);
+    submission = job ? await getSubmissionByJobPrivateId(idParam) : undefined;
+  }
+
   if (!job) {
     return NextResponse.json({ error: "Job not found." }, { status: 404 });
   }
-
-  const submission = await getSubmissionByJobPrivateId(privateId);
 
   return NextResponse.json({
     job: {
@@ -23,7 +32,8 @@ export async function GET(
       poster_wallet: job.poster_wallet,
       master_wallet: job.master_wallet,
       status: job.status,
-      created_at: job.created_at
+      created_at: job.created_at,
+      is_free: job.amount === 0 && job.poster_wallet == null
     },
     submission: submission
       ? {

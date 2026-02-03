@@ -128,7 +128,7 @@ export async function createJobTurso(params: {
   description: string;
   amount: number;
   chain: string;
-  posterWallet: string;
+  posterWallet: string | null;
   masterWallet: string;
   jobWallet: string;
   transactionHash?: string | null;
@@ -137,6 +137,7 @@ export async function createJobTurso(params: {
   if (!client) throw new Error("Turso client not initialized");
 
   const privateId = generatePrivateId();
+  const isFreeTask = params.amount === 0;
   const collateralAmount = 0.001;
   const totalPaid = params.amount + collateralAmount;
   const createdAt = new Date().toISOString();
@@ -159,20 +160,22 @@ export async function createJobTurso(params: {
 
   const jobId = Number(jobResult.lastInsertRowid);
 
-  // Insert poster payment
-  await client.execute({
-    sql: `INSERT INTO poster_payments (job_id, poster_wallet, job_amount, collateral_amount, total_paid, transaction_hash, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    args: [
-      jobId,
-      params.posterWallet,
-      params.amount,
-      collateralAmount,
-      totalPaid,
-      params.transactionHash ?? null,
-      createdAt
-    ],
-  });
+  // Insert poster payment only for paid jobs (free tasks have no poster payment)
+  if (!isFreeTask && params.posterWallet) {
+    await client.execute({
+      sql: `INSERT INTO poster_payments (job_id, poster_wallet, job_amount, collateral_amount, total_paid, transaction_hash, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        jobId,
+        params.posterWallet,
+        params.amount,
+        collateralAmount,
+        totalPaid,
+        params.transactionHash ?? null,
+        createdAt
+      ],
+    });
+  }
 
   return {
     id: jobId,
@@ -377,6 +380,29 @@ export async function getAgentRatingsTurso(agentWallet: string) {
       1: ratings.filter(r => r === 1).length
     }
   };
+}
+
+export type TopAgentRow = {
+  agent_wallet: string;
+  average_rating: number;
+  total_rated: number;
+};
+
+export async function listTopRatedAgentsTurso(limit: number = 50) {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+
+  const result = await client.execute({
+    sql: `SELECT agent_wallet, AVG(rating) as average_rating, COUNT(*) as total_rated
+          FROM submissions
+          WHERE rating IS NOT NULL AND rating > 0
+          GROUP BY agent_wallet
+          ORDER BY average_rating DESC, total_rated DESC
+          LIMIT ?`,
+    args: [limit],
+  });
+
+  return rowsToObjects(result.rows) as TopAgentRow[];
 }
 
 export async function createDepositTurso(params: {

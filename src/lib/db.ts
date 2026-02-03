@@ -255,7 +255,7 @@ export async function createJob(params: {
   description: string;
   amount: number;
   chain: string;
-  posterWallet: string;
+  posterWallet: string | null;
   masterWallet: string;
   jobWallet: string;
   transactionHash?: string | null;
@@ -266,6 +266,7 @@ export async function createJob(params: {
     return createJobTurso(params);
   }
   const privateId = generatePrivateId();
+  const isFreeTask = params.amount === 0;
   const collateralAmount = 0.001;
   const totalPaid = params.amount + collateralAmount;
   
@@ -288,21 +289,22 @@ export async function createJob(params: {
 
   const jobId = Number(jobInfo.lastInsertRowid);
   
-  // Record the poster's payment
-  const paymentStmt = db.prepare(
-    `INSERT INTO poster_payments (job_id, poster_wallet, job_amount, collateral_amount, total_paid, transaction_hash, created_at)
-     VALUES (@job_id, @poster_wallet, @job_amount, @collateral_amount, @total_paid, @transaction_hash, @created_at)`
-  );
-  
-  paymentStmt.run({
-    job_id: jobId,
-    poster_wallet: params.posterWallet,
-    job_amount: params.amount,
-    collateral_amount: collateralAmount,
-    total_paid: totalPaid,
-    transaction_hash: params.transactionHash ?? null,
-    created_at: createdAt
-  });
+  // Record the poster's payment only for paid jobs (free tasks have no poster payment)
+  if (!isFreeTask && params.posterWallet) {
+    const paymentStmt = db.prepare(
+      `INSERT INTO poster_payments (job_id, poster_wallet, job_amount, collateral_amount, total_paid, transaction_hash, created_at)
+       VALUES (@job_id, @poster_wallet, @job_amount, @collateral_amount, @total_paid, @transaction_hash, @created_at)`
+    );
+    paymentStmt.run({
+      job_id: jobId,
+      poster_wallet: params.posterWallet,
+      job_amount: params.amount,
+      collateral_amount: collateralAmount,
+      total_paid: totalPaid,
+      transaction_hash: params.transactionHash ?? null,
+      created_at: createdAt
+    });
+  }
 
   return {
     id: jobId,
@@ -483,6 +485,31 @@ export async function getAgentRatings(agentWallet: string) {
       1: ratings.filter(r => r === 1).length
     }
   };
+}
+
+export type TopAgentRow = {
+  agent_wallet: string;
+  average_rating: number;
+  total_rated: number;
+};
+
+export async function listTopRatedAgents(limit: number = 50): Promise<TopAgentRow[]> {
+  if (usingTurso) {
+    await ensureTursoSchema();
+    const { listTopRatedAgentsTurso } = require("./db-turso");
+    return listTopRatedAgentsTurso(limit);
+  }
+  const rows = db
+    .prepare(
+      `SELECT agent_wallet, AVG(rating) as average_rating, COUNT(*) as total_rated
+       FROM submissions
+       WHERE rating IS NOT NULL AND rating > 0
+       GROUP BY agent_wallet
+       ORDER BY average_rating DESC, total_rated DESC
+       LIMIT ?`
+    )
+    .all(limit) as TopAgentRow[];
+  return rows;
 }
 
 export async function getSubmission(jobId: number) {

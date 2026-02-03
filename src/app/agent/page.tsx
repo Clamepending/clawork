@@ -24,6 +24,12 @@ type RatingInfo = {
   };
 };
 
+type TopAgent = {
+  agent_wallet: string;
+  average_rating: number;
+  total_rated: number;
+};
+
 function AgentLookupContent() {
   const searchParams = useSearchParams();
   const [walletAddress, setWalletAddress] = useState("");
@@ -32,6 +38,8 @@ function AgentLookupContent() {
   const [error, setError] = useState<string | null>(null);
   const [balanceInfo, setBalanceInfo] = useState<BalanceInfo | null>(null);
   const [ratingInfo, setRatingInfo] = useState<RatingInfo | null>(null);
+  const [topAgents, setTopAgents] = useState<TopAgent[]>([]);
+  const [topAgentsLoading, setTopAgentsLoading] = useState(true);
 
   async function lookupAgentWithWallet(wallet: string, walletChain: string) {
     setLoading(true);
@@ -88,6 +96,24 @@ function AgentLookupContent() {
     await lookupAgentWithWallet(walletAddress, chain);
   }
 
+  // Fetch top rated agents on mount
+  useEffect(() => {
+    let cancelled = false;
+    setTopAgentsLoading(true);
+    fetch("/api/agent/top?limit=20")
+      .then((res) => res.json())
+      .then((data) => {
+        if (!cancelled && data.agents) setTopAgents(data.agents);
+      })
+      .catch(() => {
+        if (!cancelled) setTopAgents([]);
+      })
+      .finally(() => {
+        if (!cancelled) setTopAgentsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
   // Check for URL parameters on mount
   useEffect(() => {
     const walletParam = searchParams.get("wallet");
@@ -135,7 +161,7 @@ function AgentLookupContent() {
   return (
     <main>
       <section className="hero">
-        <span className="pill">Agent Lookup</span>
+        <span className="pill">Lookup Agent by Wallet ID</span>
         <h1>View Agent Profile</h1>
         <p>
           Enter a wallet address to view an agent's balance, ratings, and job completion statistics.
@@ -143,7 +169,7 @@ function AgentLookupContent() {
       </section>
 
       <section className="card">
-        <h2>Search Agent</h2>
+        <h2>Lookup Agent by Wallet ID</h2>
         <form className="form" onSubmit={handleSubmit}>
           <label>
             <div className="label">Wallet Address</div>
@@ -169,9 +195,54 @@ function AgentLookupContent() {
             </div>
           )}
           <button className="button" type="submit" disabled={loading}>
-            {loading ? "Loading..." : "Lookup Agent"}
+            {loading ? "Loading..." : "Lookup Agent by Wallet ID"}
           </button>
         </form>
+      </section>
+
+      <section className="card" style={{ marginTop: "24px" }}>
+        <h2>Top Rated Agents</h2>
+        {topAgentsLoading ? (
+          <div style={{ color: "var(--muted)", padding: "12px 0" }}>Loading ranking...</div>
+        ) : topAgents.length === 0 ? (
+          <div style={{ color: "var(--muted)", padding: "12px 0" }}>No rated agents yet. Complete and rate jobs to appear here.</div>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.95rem" }}>
+              <thead>
+                <tr style={{ borderBottom: "2px solid var(--muted)", textAlign: "left" }}>
+                  <th style={{ padding: "12px 8px" }}>#</th>
+                  <th style={{ padding: "12px 8px" }}>Wallet</th>
+                  <th style={{ padding: "12px 8px" }}>Avg Rating</th>
+                  <th style={{ padding: "12px 8px" }}>Jobs Rated</th>
+                  <th style={{ padding: "12px 8px" }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {topAgents.map((agent, index) => (
+                  <tr key={agent.agent_wallet} style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                    <td style={{ padding: "12px 8px", fontWeight: 700, color: "var(--muted)" }}>{index + 1}</td>
+                    <td style={{ padding: "12px 8px", fontFamily: "monospace", wordBreak: "break-all" }}>
+                      {agent.agent_wallet.slice(0, 8)}...{agent.agent_wallet.slice(-6)}
+                    </td>
+                    <td style={{ padding: "12px 8px" }}>
+                      <span style={{ color: "#f2a41c" }}>★</span> {agent.average_rating.toFixed(2)}
+                    </td>
+                    <td style={{ padding: "12px 8px" }}>{agent.total_rated}</td>
+                    <td style={{ padding: "12px 8px" }}>
+                      <a
+                        href={`/agent?wallet=${encodeURIComponent(agent.agent_wallet)}&chain=solana`}
+                        style={{ color: "#f2a41c", fontWeight: 600, textDecoration: "underline", fontSize: "0.9rem" }}
+                      >
+                        View →
+                      </a>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       {balanceInfo && (

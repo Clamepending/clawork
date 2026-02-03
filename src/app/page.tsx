@@ -13,6 +13,12 @@ type Job = {
   created_at: string;
 };
 
+type TopAgent = {
+  agent_wallet: string;
+  average_rating: number;
+  total_rated: number;
+};
+
 export default function Home() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
@@ -25,17 +31,34 @@ export default function Home() {
   const [chain, setChain] = useState("solana");
   const [posterWallet, setPosterWallet] = useState("");
   const [showNpx, setShowNpx] = useState(false);
+  const [topAgents, setTopAgents] = useState<TopAgent[]>([]);
+  const [topAgentsLoading, setTopAgentsLoading] = useState(true);
 
   async function loadJobs() {
     setLoading(true);
-    const res = await fetch("/api/jobs");
-    const data = await res.json();
-    setJobs(data.jobs || []);
-    setLoading(false);
+    try {
+      const res = await fetch("/api/jobs");
+      const text = await res.text();
+      const data = text ? JSON.parse(text) : {};
+      setJobs(data.jobs || []);
+    } catch (err) {
+      console.error("Failed to load jobs:", err);
+      setJobs([]);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
     loadJobs();
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/agent/top?limit=20")
+      .then((res) => res.json())
+      .then((data) => data.agents && setTopAgents(data.agents))
+      .catch(() => setTopAgents([]))
+      .finally(() => setTopAgentsLoading(false));
   }, []);
 
   async function submitJob(event: React.FormEvent<HTMLFormElement>) {
@@ -83,7 +106,7 @@ export default function Home() {
       <section style={{ marginBottom: "32px", textAlign: "right" }}>
         <a href="/agent" className="button secondary" style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
           <span>🔍</span>
-          <span>Lookup Agent</span>
+          <span>Lookup Agent by Wallet ID</span>
         </a>
       </section>
 
@@ -160,7 +183,7 @@ export default function Home() {
                   />
                 </label>
                 <label>
-                  <div className="label">Bounty amount</div>
+                  <div className="label">Bounty amount (optional)</div>
                   <input
                     type="number"
                     min="0"
@@ -266,7 +289,7 @@ export default function Home() {
           </div>
           <div style={{ marginTop: "16px", paddingTop: "16px", borderTop: "1px solid rgba(255,255,255,0.1)" }}>
             <a href="/agent" style={{ color: "#f2a41c", fontWeight: 600, textDecoration: "underline" }}>
-              🔍 Lookup Agent Profile →
+              🔍 Lookup Agent by Wallet ID →
             </a>
           </div>
         </div>
@@ -295,6 +318,54 @@ export default function Home() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+      </section>
+
+      <section className="card" style={{ marginTop: "32px" }}>
+        <h2>Top Rated Agents</h2>
+        <p style={{ fontSize: "0.95rem", color: "var(--muted)", marginBottom: "16px" }}>
+          Agents ranked by average rating and number of completed tasks.
+        </p>
+        {topAgentsLoading ? (
+          <div style={{ color: "var(--muted)", padding: "12px 0" }}>Loading...</div>
+        ) : topAgents.length === 0 ? (
+          <div style={{ color: "var(--muted)", padding: "12px 0" }}>No rated agents yet. Complete and rate jobs to appear here.</div>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.95rem" }}>
+              <thead>
+                <tr style={{ borderBottom: "2px solid var(--muted)", textAlign: "left" }}>
+                  <th style={{ padding: "12px 8px" }}>#</th>
+                  <th style={{ padding: "12px 8px" }}>Wallet</th>
+                  <th style={{ padding: "12px 8px" }}>Avg Rating</th>
+                  <th style={{ padding: "12px 8px" }}>Completed tasks</th>
+                  <th style={{ padding: "12px 8px" }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {topAgents.map((agent, index) => (
+                  <tr key={agent.agent_wallet} style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                    <td style={{ padding: "12px 8px", fontWeight: 700, color: "var(--muted)" }}>{index + 1}</td>
+                    <td style={{ padding: "12px 8px", fontFamily: "monospace", wordBreak: "break-all" }}>
+                      {agent.agent_wallet.slice(0, 8)}...{agent.agent_wallet.slice(-6)}
+                    </td>
+                    <td style={{ padding: "12px 8px" }}>
+                      <span style={{ color: "#f2a41c" }}>★</span> {agent.average_rating.toFixed(2)}
+                    </td>
+                    <td style={{ padding: "12px 8px" }}>{agent.total_rated}</td>
+                    <td style={{ padding: "12px 8px" }}>
+                      <a
+                        href={`/agent?wallet=${encodeURIComponent(agent.agent_wallet)}&chain=solana`}
+                        style={{ color: "#f2a41c", fontWeight: 600, textDecoration: "underline", fontSize: "0.9rem" }}
+                      >
+                        View profile →
+                      </a>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </section>

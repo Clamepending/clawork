@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getJobByPrivateId, getSubmissionByJobPrivateId, updateSubmissionRating, getWalletBalances, checkAndApplyLateRatingPenalties, returnPosterCollateral } from "@/lib/db";
+import { getJob, getJobByPrivateId, getSubmission, getSubmissionByJobPrivateId, updateSubmissionRating, getWalletBalances, returnPosterCollateral } from "@/lib/db";
 
 function badRequest(message: string) {
   return NextResponse.json({ error: message }, { status: 400 });
@@ -9,21 +9,7 @@ export async function POST(
   request: Request,
   { params }: { params: { id: string } }
 ) {
-  const privateId = params.id;
-
-  const job = await getJobByPrivateId(privateId);
-  if (!job) {
-    return NextResponse.json({ error: "Job not found." }, { status: 404 });
-  }
-
-  const submission = await getSubmissionByJobPrivateId(privateId);
-  if (!submission) {
-    return NextResponse.json(
-      { error: "No submission found for this job." },
-      { status: 404 }
-    );
-  }
-
+  const idParam = params.id;
   const payload = await request.json().catch(() => null);
   if (!payload) {
     return badRequest("Invalid JSON body.");
@@ -34,37 +20,89 @@ export async function POST(
     return badRequest("Rating must be an integer between 1 and 5.");
   }
 
-  // Check for late rating
+  // Public rating for free tasks: id is numeric job id, no posterWallet required
+  const isNumericId = /^\d+$/.test(idParam);
+  let job: Awaited<ReturnType<typeof getJob>>;
+  let submission: Awaited<ReturnType<typeof getSubmission>>;
+  const posterWallet: string | null = typeof payload.posterWallet === "string" ? payload.posterWallet.trim() || null : null;
+
+  if (isNumericId) {
+    const jobId = Number(idParam);
+    job = await getJob(jobId);
+    if (!job) {
+      return NextResponse.json({ error: "Job not found." }, { status: 404 });
+    }
+    const isFreeTask = job.amount === 0 && job.poster_wallet == null;
+    if (!isFreeTask) {
+      return NextResponse.json(
+        { error: "Public rating is only allowed for free tasks (amount 0, no poster). Use the poster private link with posterWallet for paid jobs." },
+        { status: 400 }
+      );
+    }
+    submission = await getSubmission(jobId);
+  } else {
+    job = await getJobByPrivateId(idParam);
+    if (!job) {
+      return NextResponse.json({ error: "Job not found." }, { status: 404 });
+    }
+    if (!posterWallet) {
+      return badRequest("posterWallet is required in request body for paid job rating.");
+    }
+    if (job.poster_wallet !== posterWallet) {
+      return NextResponse.json({ error: "Unauthorized. Only the poster can rate this job." }, { status: 403 });
+    }
+    submission = await getSubmissionByJobPrivateId(idParam);
+  }
+
+  if (!submission) {
+    return NextResponse.json(
+      { error: "No submission found for this job." },
+      { status: 404 }
+    );
+  }
+
+  const isFreeTask = job.amount === 0 && job.poster_wallet == null;
+
+  // Check for late rating (only relevant for paid jobs with poster)
   const now = new Date();
   const deadline = submission.rating_deadline ? new Date(submission.rating_deadline) : null;
   const isLate = deadline ? now > deadline : false;
   const hoursLate = isLate && deadline ? Math.floor((now.getTime() - deadline.getTime()) / (1000 * 60 * 60)) : 0;
 
-  // Update rating and apply reward/penalty
   await updateSubmissionRating(submission.id, rating, job.amount, submission.agent_wallet, job.chain, job.poster_wallet);
-  
-  // Return 0.001 SOL collateral to poster
-  const collateralReturned = await returnPosterCollateral(job.id, job.chain);
-  
-  // Get updated balances
+
+  let collateralReturned = false;
+  if (!isFreeTask) {
+    collateralReturned = await returnPosterCollateral(job.id, job.chain);
+  }
+
   const balances = await getWalletBalances(submission.agent_wallet, job.chain);
-  
-  const updatedSubmission = await getSubmissionByJobPrivateId(privateId);
-  
+  const updatedSubmission = await getSubmission(job.id);
+
+  if (isFreeTask) {
+    return NextResponse.json({
+      message: "Rating submitted successfully. This was a free task; no payouts or collateral.",
+      submission: {
+        id: updatedSubmission!.id,
+        rating: updatedSubmission!.rating,
+        job_id: job.id
+      },
+      is_late: isLate,
+      hours_late: hoursLate
+    });
+  }
+
   let rewardMessage = "";
   let lateMessage = "";
-  
   if (rating >= 3) {
     rewardMessage = ` Agent received ${job.amount} ${job.chain} payout (moved from pending to verified balance).`;
   } else {
     rewardMessage = ` Agent received -0.01 ${job.chain} penalty.`;
   }
-  
   if (isLate) {
     lateMessage = ` Rating submitted ${hoursLate} hours late. Poster received -0.01 ${job.chain} penalty.`;
   }
-  
-  const collateralMessage = collateralReturned 
+  const collateralMessage = collateralReturned
     ? ` Poster's 0.001 ${job.chain} collateral has been returned to ${job.poster_wallet}.`
     : "";
 
