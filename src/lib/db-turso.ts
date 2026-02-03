@@ -319,6 +319,84 @@ export async function createJobTurso(params: {
   };
 }
 
+/** Create a paid job funded from the poster's MoltyBounty verified balance. */
+export async function createPaidJobFromBalanceTurso(params: {
+  description: string;
+  amount: number;
+  chain: string;
+  posterWallet: string;
+  posterUsername?: string | null;
+  masterWallet: string;
+  jobWallet: string;
+}): Promise<{ id: number; private_id: string; created_at: string } | { success: false; error: string }> {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+
+  const collateralAmount = 0.001;
+  const totalRequired = params.amount + collateralAmount;
+  const deposit = await getDepositTurso(params.posterWallet, params.chain);
+  if (!deposit) {
+    return { success: false, error: "No MoltyBounty balance for this account on this chain. Deposit or use a different funding method." };
+  }
+  if (deposit.verified_balance < totalRequired) {
+    return {
+      success: false,
+      error: `Insufficient MoltyBounty balance. Need ${totalRequired.toFixed(4)} ${params.chain} (bounty + collateral). Verified balance: ${deposit.verified_balance.toFixed(4)}.`,
+    };
+  }
+
+  const privateId = generatePrivateId();
+  const totalPaid = totalRequired;
+  const posterUsername = params.posterUsername ?? null;
+  const createdAt = new Date().toISOString();
+  const newVerified = deposit.verified_balance - totalRequired;
+  const newBalance = deposit.balance - totalRequired;
+
+  await client.execute({
+    sql: "UPDATE deposits SET verified_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?",
+    args: [newVerified, newBalance, params.posterWallet, params.chain],
+  });
+
+  try {
+    const jobResult = await client.execute({
+      sql: `INSERT INTO jobs (private_id, description, amount, chain, poster_wallet, poster_username, master_wallet, job_wallet, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`,
+      args: [
+        privateId,
+        params.description,
+        params.amount,
+        params.chain,
+        params.posterWallet,
+        posterUsername,
+        params.masterWallet,
+        params.jobWallet,
+        createdAt,
+      ],
+    });
+    const jobId = Number(jobResult.lastInsertRowid);
+    await client.execute({
+      sql: `INSERT INTO poster_payments (job_id, poster_wallet, job_amount, collateral_amount, total_paid, transaction_hash, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        jobId,
+        params.posterWallet,
+        params.amount,
+        collateralAmount,
+        totalPaid,
+        null,
+        createdAt,
+      ],
+    });
+    return { id: jobId, private_id: privateId, created_at: createdAt };
+  } catch (e) {
+    await client.execute({
+      sql: "UPDATE deposits SET verified_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?",
+      args: [deposit.verified_balance, deposit.balance, params.posterWallet, params.chain],
+    });
+    throw e;
+  }
+}
+
 export async function listJobsTurso(status?: string) {
   const client = getTursoClient();
   if (!client) throw new Error("Turso client not initialized");
@@ -954,17 +1032,17 @@ export async function deleteJobTurso(privateId: string, posterWallet: string) {
 
   const job = rowToObject(jobResult.rows[0]);
   if (!job) {
-    return { success: false, error: "Job not found." };
+    return { success: false, error: "Bounty not found." };
   }
 
   // Verify poster wallet matches
   if (job.poster_wallet !== posterWallet) {
-    return { success: false, error: "Unauthorized. Only the poster can delete this job." };
+    return { success: false, error: "Unauthorized. Only the poster can delete this bounty." };
   }
 
   // Verify job is still open (not claimed)
   if (job.status !== "open") {
-    return { success: false, error: `Cannot delete job. Job status is "${job.status}" (must be "open").` };
+    return { success: false, error: `Cannot delete bounty. Bounty status is "${job.status}" (must be "open").` };
   }
 
   // Get poster payment to return collateral
@@ -1014,7 +1092,7 @@ export async function deleteJobTurso(privateId: string, posterWallet: string) {
 
   return {
     success: true,
-    message: `Job deleted successfully. ${payment && !payment.collateral_returned ? `Collateral (${payment.collateral_amount} ${job.chain}) has been returned to your wallet.` : ""}`,
+    message: `Bounty deleted successfully. ${payment && !payment.collateral_returned ? `Collateral (${payment.collateral_amount} ${job.chain}) has been returned to your wallet.` : ""}`,
     collateral_returned: payment && !payment.collateral_returned ? payment.collateral_amount : 0
   };
 }

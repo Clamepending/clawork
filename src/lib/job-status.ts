@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 
 /**
- * Returns inline styles for job status badges (color-coded).
+ * Returns inline styles for bounty status badges (color-coded).
  */
 export function getJobStatusStyle(status: string): CSSProperties {
   const s = (status || "").toLowerCase();

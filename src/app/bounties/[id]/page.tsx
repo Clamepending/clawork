@@ -26,7 +26,7 @@ type Submission = {
   created_at: string;
 };
 
-export default function JobDetailPage() {
+export default function BountyDetailPage() {
   const params = useParams();
   const router = useRouter();
   const jobId = params.id as string;
@@ -40,12 +40,12 @@ export default function JobDetailPage() {
   const [ratingSuccess, setRatingSuccess] = useState<string | null>(null);
   const [ratingError, setRatingError] = useState<string | null>(null);
 
-  // Private key view = opened with job private key (non-numeric). Public view = numeric id from Open Jobs.
+  // Private key view = opened with bounty private key (non-numeric). Public view = numeric id from Browse Bounties.
   const isPrivateKeyView = !/^\d+$/.test(jobId);
-  // Free tasks have no job private key; anyone can view response and rate. Paid jobs: only private key view can view/rate.
+  // Free tasks have no bounty private key; anyone can view response and rate. Paid bounties: only private key view can view/rate.
   const isFreeTask = job ? job.amount === 0 && job.poster_wallet == null : false;
   const canViewResponseAndRate = isPrivateKeyView || isFreeTask;
-  // Who can set/update rating: for free tasks anyone; for paid jobs only poster (private key view). Cannot set if auto-verified (rating 0).
+  // Who can set/update rating: for free tasks anyone; for paid bounties only poster (private key view). Cannot set if auto-verified (rating 0).
   const canSetRating = (isFreeTask || isPrivateKeyView) && (!submission || submission.rating === null || submission.rating > 0);
 
   useEffect(() => {
@@ -58,9 +58,9 @@ export default function JobDetailPage() {
       const res = await fetch(`/api/jobs/${jobId}`);
       if (!res.ok) {
         if (res.status === 404) {
-          setRatingError("Job not found.");
+          setRatingError("Bounty not found.");
         } else {
-          setRatingError("Failed to load job.");
+          setRatingError("Failed to load bounty.");
         }
         setLoading(false);
         return;
@@ -72,7 +72,7 @@ export default function JobDetailPage() {
         setRating(data.submission.rating);
       }
     } catch (error) {
-      setRatingError("Failed to load job.");
+      setRatingError("Failed to load bounty.");
     } finally {
       setLoading(false);
     }
@@ -118,7 +118,7 @@ export default function JobDetailPage() {
     return (
       <main>
         <div className="card">
-          <div>Loading job...</div>
+          <div>Loading bounty...</div>
         </div>
       </main>
     );
@@ -128,8 +128,8 @@ export default function JobDetailPage() {
     return (
       <main>
         <div className="card">
-          <h2>Job Not Found</h2>
-          <p>The job you're looking for doesn't exist.</p>
+          <h2>Bounty Not Found</h2>
+          <p>The bounty you&apos;re looking for doesn&apos;t exist.</p>
           <button className="button" onClick={() => router.push("/")}>
             Back to Home
           </button>
@@ -142,12 +142,12 @@ export default function JobDetailPage() {
     <main>
       <section className="card">
         <div style={{ marginBottom: "16px" }}>
-          <button className="button secondary" onClick={() => router.push("/")}>
-            ← Back to Jobs
+          <button className="button secondary" onClick={() => router.push("/bounties")}>
+            ← Back to Bounties
           </button>
         </div>
 
-        <h1>Job Details</h1>
+        <h1>Bounty Details</h1>
         <div className="meta" style={{ marginBottom: "24px", display: "flex", flexWrap: "wrap", alignItems: "center", gap: "12px" }}>
           <span>{job.amount} {job.chain}</span>
           <span style={getJobStatusStyle(job.status)}>{job.status}</span>
@@ -161,9 +161,9 @@ export default function JobDetailPage() {
 
         {!canViewResponseAndRate && submission ? (
           <div className="card" style={{ marginTop: "24px" }}>
-            <h2>Job claimed</h2>
+            <h2>Bounty claimed</h2>
             <p style={{ marginBottom: submission.rating != null ? "12px" : 0 }}>
-              This paid job has been claimed. Use the job private key (from when you posted the job) in the &quot;Check job status&quot; section on the home page to view the agent response and rate the submission.
+              This paid bounty has been claimed. Use the bounty private key (from when you posted the bounty) in the &quot;Check bounty status&quot; section on the home page to view the agent response and rate the submission.
             </p>
             {submission.rating != null && (
               <div style={{ fontSize: "0.95rem", color: "var(--muted)" }}>
@@ -285,7 +285,7 @@ export default function JobDetailPage() {
         ) : (
           <div className="card" style={{ marginTop: "24px" }}>
             <h2>No Response Yet</h2>
-            <p>This job hasn&apos;t been claimed yet. Check back later!</p>
+            <p>This bounty hasn&apos;t been claimed yet. Check back later!</p>
           </div>
         )}
       </section>

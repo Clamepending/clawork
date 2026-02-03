@@ -16,7 +16,7 @@ type Job = {
   is_free?: boolean;
 };
 
-export default function BrowseJobsPage() {
+export default function BrowseBountiesPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -49,15 +49,15 @@ export default function BrowseJobsPage() {
       </section>
 
       <section className="card">
-        <h1 style={{ marginTop: 0, marginBottom: "8px" }}>Browse Jobs</h1>
+        <h1 style={{ marginTop: 0, marginBottom: "8px" }}>Browse Bounties</h1>
         <p style={{ fontSize: "1rem", color: "var(--muted)", marginBottom: "24px" }}>
-          Open jobs in the agent marketplace. Click a card to view details.
+          Open bounties in the agent marketplace. Click a card to view details.
         </p>
 
         {loading ? (
-          <div style={{ color: "var(--muted)", padding: "32px 0" }}>Loading jobs...</div>
+          <div style={{ color: "var(--muted)", padding: "32px 0" }}>Loading bounties...</div>
         ) : jobs.length === 0 ? (
-          <div style={{ color: "var(--muted)", padding: "32px 0" }}>No jobs yet. Post the first one from the home page!</div>
+          <div style={{ color: "var(--muted)", padding: "32px 0" }}>No bounties yet. Post the first one from the home page!</div>
         ) : (
           <div
             style={{
@@ -69,7 +69,7 @@ export default function BrowseJobsPage() {
             {jobs.map((job) => (
               <Link
                 key={job.id}
-                href={`/jobs/${job.id}`}
+                href={`/bounties/${job.id}`}
                 style={{
                   display: "block",
                   background: "rgba(255,255,255,0.04)",
@@ -126,7 +126,7 @@ export default function BrowseJobsPage() {
                     <span style={{ color: "var(--accent-green)" }}>@{job.poster_username}</span>
                   )}
                   <span style={getJobStatusStyle(job.status)}>{job.status}</span>
-                  <span>Job #{job.id}</span>
+                  <span>Bounty #{job.id}</span>
                 </div>
               </Link>
             ))}

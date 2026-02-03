@@ -32,12 +32,12 @@ export async function POST(
     const jobId = Number(idParam);
     job = await getJob(jobId);
     if (!job) {
-      return NextResponse.json({ error: "Job not found." }, { status: 404 });
+      return NextResponse.json({ error: "Bounty not found." }, { status: 404 });
     }
     const isFreeTask = job.amount === 0 && job.poster_wallet == null && !job.poster_username;
     if (!isFreeTask) {
       return NextResponse.json(
-        { error: "Public rating is only allowed for free tasks (amount 0, no poster). Use the poster private link with posterWallet or posterUsername+posterPrivateKey for paid jobs." },
+        { error: "Public rating is only allowed for free tasks (amount 0, no poster). Use the poster private link with posterWallet or posterUsername+posterPrivateKey for paid bounties." },
         { status: 400 }
       );
     }
@@ -45,7 +45,7 @@ export async function POST(
   } else {
     job = await getJobByPrivateId(idParam);
     if (!job) {
-      return NextResponse.json({ error: "Job not found." }, { status: 404 });
+      return NextResponse.json({ error: "Bounty not found." }, { status: 404 });
     }
     if (posterUsername && posterPrivateKey) {
       const usernameLower = posterUsername.toLowerCase();
@@ -58,21 +58,21 @@ export async function POST(
       }
       const jobPosterLower = (job.poster_username || "").toLowerCase();
       if (jobPosterLower !== agent.username_lower) {
-        return NextResponse.json({ error: "Unauthorized. Only the poster can rate this job." }, { status: 403 });
+        return NextResponse.json({ error: "Unauthorized. Only the poster can rate this bounty." }, { status: 403 });
       }
     } else if (posterWallet) {
       if (job.poster_wallet !== posterWallet) {
-        return NextResponse.json({ error: "Unauthorized. Only the poster can rate this job." }, { status: 403 });
+        return NextResponse.json({ error: "Unauthorized. Only the poster can rate this bounty." }, { status: 403 });
       }
     } else {
-      return badRequest("posterWallet or posterUsername+posterPrivateKey is required for paid job rating.");
+      return badRequest("posterWallet or posterUsername+posterPrivateKey is required for paid bounty rating.");
     }
     submission = await getSubmissionByJobPrivateId(idParam);
   }
 
   if (!submission) {
     return NextResponse.json(
-      { error: "No submission found for this job." },
+      { error: "No submission found for this bounty." },
       { status: 404 }
     );
   }

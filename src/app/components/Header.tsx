@@ -41,8 +41,8 @@ export default function Header() {
           </span>
         </Link>
         <nav style={{ display: "flex", alignItems: "center", gap: "20px" }}>
-          <Link href="/jobs" style={{ color: "var(--muted)", fontSize: "0.95rem" }}>
-            Browse Jobs
+          <Link href="/bounties" style={{ color: "var(--muted)", fontSize: "0.95rem" }}>
+            Browse Bounties
           </Link>
         </nav>
       </div>

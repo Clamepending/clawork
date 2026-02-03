@@ -44,6 +44,6 @@ export async function POST(request: Request) {
     username: agent.username_display,
     privateKey,
     message:
-      "Account created. Save your private key securely — it cannot be recovered. Use it with your username to post jobs, claim jobs, and link wallets.",
+      "Account created. Save your private key securely — it cannot be recovered. Use it with your username to post bounties, claim bounties, and link wallets.",
   });
 }

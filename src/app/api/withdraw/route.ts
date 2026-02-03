@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
-import { getDeposit, getWalletBalances, processWithdrawal, createWithdrawal } from "@/lib/db";
+import { getAgentByUsername, getLinkedWallet, getDeposit, getWalletBalances, processWithdrawal, createWithdrawal } from "@/lib/db";
+import { verifyPrivateKey } from "@/lib/agent-auth";
 
 function badRequest(message: string) {
   return NextResponse.json({ error: message }, { status: 400 });
 }
-
-const MINIMUM_BALANCE = 0.01; // Minimum balance to claim jobs (penalty amount)
 
 export async function POST(request: Request) {
   const payload = await request.json().catch(() => null);
@@ -13,17 +12,25 @@ export async function POST(request: Request) {
     return badRequest("Invalid JSON body.");
   }
 
-  const walletAddress =
-    typeof payload.walletAddress === "string" ? payload.walletAddress.trim() : "";
+  const username =
+    typeof payload.username === "string" ? payload.username.trim() : "";
+  const accountSecretKey =
+    typeof payload.accountSecretKey === "string" ? payload.accountSecretKey.trim() : "";
+  // Allow legacy key name for backward compatibility
+  const privateKey = accountSecretKey || (typeof payload.privateKey === "string" ? payload.privateKey.trim() : "");
+  const destinationWallet =
+    typeof payload.destinationWallet === "string" ? payload.destinationWallet.trim() : "";
   const amount = Number(payload.amount);
   const chain = typeof payload.chain === "string" ? payload.chain.trim().toLowerCase() : "";
-  const destinationWallet =
-    typeof payload.destinationWallet === "string" ? payload.destinationWallet.trim() : null;
-  const transactionHash =
-    typeof payload.transactionHash === "string" ? payload.transactionHash.trim() : null;
 
-  if (!walletAddress) {
-    return badRequest("Wallet address is required.");
+  if (!username) {
+    return badRequest("Username is required.");
+  }
+  if (!privateKey) {
+    return badRequest("Account secret key (privateKey or accountSecretKey) is required.");
+  }
+  if (!destinationWallet) {
+    return badRequest("Destination wallet (crypto address to receive funds) is required.");
   }
   if (!Number.isFinite(amount) || amount <= 0) {
     return badRequest("Amount must be a positive number.");
@@ -32,18 +39,35 @@ export async function POST(request: Request) {
     return badRequest("Chain is required.");
   }
 
-  // Check if deposit exists
+  const usernameLower = username.toLowerCase();
+  const agent = await getAgentByUsername(usernameLower);
+  if (!agent) {
+    return NextResponse.json({ error: "Account not found." }, { status: 404 });
+  }
+  if (!verifyPrivateKey(privateKey, agent.private_key_hash)) {
+    return NextResponse.json({ error: "Invalid username or account secret key." }, { status: 401 });
+  }
+
+  const linked = await getLinkedWallet(agent.id, chain);
+  if (!linked) {
+    return badRequest(
+      "No wallet linked for this chain. Link a wallet first (POST /api/account/link-wallet) to withdraw."
+    );
+  }
+
+  const walletAddress = linked.wallet_address;
+
   const deposit = await getDeposit(walletAddress, chain);
   if (!deposit) {
     return NextResponse.json(
-      { error: `No deposit found for wallet ${walletAddress} on chain ${chain}. Please deposit first.` },
+      {
+        error: `No MoltyBounty balance for this account on ${chain}. Deposit or earn bounties first.`,
+      },
       { status: 404 }
     );
   }
 
-  // Process withdrawal (checks balances and minimum requirements)
   const result = await processWithdrawal(walletAddress, chain, amount);
-  
   if (!result.success) {
     return NextResponse.json(
       { error: result.error },
@@ -51,17 +75,15 @@ export async function POST(request: Request) {
     );
   }
 
-  // Record the withdrawal
   const withdrawal = await createWithdrawal({
     walletAddress,
     amount,
     chain,
     destinationWallet,
-    transactionHash,
-    status: "completed"
+    transactionHash: null,
+    status: "completed",
   });
 
-  // Get updated balances
   const balances = await getWalletBalances(walletAddress, chain);
 
   return NextResponse.json({
@@ -71,16 +93,16 @@ export async function POST(request: Request) {
       amount,
       chain,
       destination_wallet: destinationWallet,
-      transaction_hash: transactionHash,
+      transaction_hash: null,
       status: "completed",
-      created_at: withdrawal.created_at
+      created_at: withdrawal.created_at,
     },
     balances: {
       balance: balances.balance,
       verified_balance: balances.verified_balance,
-      pending_balance: balances.pending_balance
+      pending_balance: balances.pending_balance,
     },
-    message: `Withdrawal processed successfully. ${amount} ${chain} withdrawn from verified balance. Remaining balances: ${balances.verified_balance.toFixed(4)} verified (withdrawable), ${balances.pending_balance.toFixed(4)} pending (awaiting rating), ${balances.balance.toFixed(4)} total ${chain}.`
+    message: `Withdrawal recorded. ${amount} ${chain} will be sent to ${destinationWallet}. Remaining balances: ${balances.verified_balance.toFixed(4)} verified, ${balances.pending_balance.toFixed(4)} pending, ${balances.balance.toFixed(4)} total ${chain}.`,
   });
 }
 
@@ -90,6 +112,6 @@ export async function GET(request: Request) {
 
   const { listWithdrawals } = await import("@/lib/db");
   const withdrawals = await listWithdrawals(walletAddress);
-  
+
   return NextResponse.json({ withdrawals });
 }

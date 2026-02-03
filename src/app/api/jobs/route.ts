@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createJob, listJobs, getAgentByUsername, getLinkedWallet } from "@/lib/db";
+import { createJob, createPaidJobFromBalance, listJobs, getAgentByUsername, getLinkedWallet } from "@/lib/db";
 import { verifyPrivateKey } from "@/lib/agent-auth";
 
 function badRequest(message: string) {
@@ -35,14 +35,10 @@ export async function POST(request: Request) {
   const description = typeof payload.description === "string" ? payload.description.trim() : "";
   const amount = Number(payload.amount);
   const chain = typeof payload.chain === "string" ? payload.chain.trim().toLowerCase() : "";
-  const posterWallet =
-    typeof payload.posterWallet === "string" ? payload.posterWallet.trim() : null;
   const posterUsername =
     typeof payload.posterUsername === "string" ? payload.posterUsername.trim() : null;
   const posterPrivateKey =
     typeof payload.posterPrivateKey === "string" ? payload.posterPrivateKey.trim() : null;
-  const transactionHash =
-    typeof payload.transactionHash === "string" ? payload.transactionHash.trim() : null;
 
   if (!description) {
     return badRequest("Description is required.");
@@ -55,7 +51,15 @@ export async function POST(request: Request) {
   }
 
   const isFreeTask = amount === 0;
-  let resolvedPosterWallet: string | null = posterWallet;
+
+  // Paid bounties require account auth and are funded from MoltyBounty verified balance (no external tx).
+  if (!isFreeTask && (!posterUsername || !posterPrivateKey)) {
+    return badRequest(
+      "Paid bounties require posterUsername and posterPrivateKey (account auth). Your MoltyBounty verified balance will be used to fund the bounty and collateral."
+    );
+  }
+
+  let resolvedPosterWallet: string | null = null;
   let resolvedPosterUsername: string | null = null;
 
   if (posterUsername && posterPrivateKey) {
@@ -72,46 +76,53 @@ export async function POST(request: Request) {
       const linked = await getLinkedWallet(agent.id, chain);
       if (!linked) {
         return badRequest(
-          "Link a wallet to your account first (POST /api/account/link-wallet) for paid jobs."
+          "Link a wallet to your account first (POST /api/account/link-wallet) for paid bounties."
         );
       }
       resolvedPosterWallet = linked.wallet_address;
     }
-  } else {
-    if (!isFreeTask && !posterWallet) {
-      return badRequest(
-        "For paid jobs use posterUsername + posterPrivateKey (and link a wallet), or provide posterWallet. For free tasks (amount 0), use posterUsername + posterPrivateKey or omit posterWallet."
-      );
-    }
   }
 
-  const masterWallet = process.env.MASTER_WALLET_ADDRESS;
-  const jobWallet = masterWallet ?? "";
-
-  if (!isFreeTask && !masterWallet) {
-    return NextResponse.json(
-      { error: "MASTER_WALLET_ADDRESS is not configured." },
-      { status: 500 }
-    );
-  }
-
+  const masterWallet = process.env.MASTER_WALLET_ADDRESS ?? "";
+  const jobWallet = masterWallet;
   const collateralAmount = 0.001;
   const totalRequired = amount + collateralAmount;
 
-  const job = await createJob({
-    description,
-    amount,
-    chain,
-    posterWallet: resolvedPosterWallet ?? null,
-    posterUsername: resolvedPosterUsername ?? undefined,
-    masterWallet: masterWallet ?? "",
-    jobWallet,
-    transactionHash: isFreeTask ? null : transactionHash,
-  });
+  let job: { id: number; private_id: string; created_at: string };
+
+  if (isFreeTask) {
+    job = await createJob({
+      description,
+      amount: 0,
+      chain,
+      posterWallet: null,
+      posterUsername: resolvedPosterUsername ?? undefined,
+      masterWallet: jobWallet,
+      jobWallet,
+      transactionHash: null,
+    });
+  } else {
+    if (!resolvedPosterWallet) {
+      return badRequest("Linked wallet is required for paid bounties.");
+    }
+    const balanceResult = await createPaidJobFromBalance({
+      description,
+      amount,
+      chain,
+      posterWallet: resolvedPosterWallet,
+      posterUsername: resolvedPosterUsername ?? undefined,
+      masterWallet: jobWallet,
+      jobWallet,
+    });
+    if ("success" in balanceResult && balanceResult.success === false) {
+      return NextResponse.json({ error: balanceResult.error }, { status: 400 });
+    }
+    job = balanceResult as { id: number; private_id: string; created_at: string };
+  }
 
   const message = isFreeTask
-    ? `Free task posted successfully! Job ID: ${job.id}. Anyone can view and rate submissions at GET /api/jobs/${job.id} and POST /api/jobs/${job.id}/rate with body { "rating": 1-5 }.`
-    : `Job posted successfully! Your private job ID: ${job.private_id}. Save this - it's the only way to access your job and rate submissions. You sent ${totalRequired.toFixed(4)} ${chain} (${amount.toFixed(4)} job amount + ${collateralAmount.toFixed(4)} collateral). Collateral will be returned to your wallet after you rate the completion.`;
+    ? `Free task posted successfully! Bounty ID: ${job.id}. Anyone can view and rate submissions at GET /api/jobs/${job.id} and POST /api/jobs/${job.id}/rate with body { "rating": 1-5 }.`
+    : `Bounty posted successfully! Your private bounty ID: ${job.private_id}. Save this - it's the only way to access your bounty and rate submissions. ${totalRequired.toFixed(4)} ${chain} (${amount.toFixed(4)} bounty + ${collateralAmount.toFixed(4)} collateral) was deducted from your MoltyBounty balance. Collateral will be returned to your balance after you rate the completion.`;
 
   return NextResponse.json({
     job: {

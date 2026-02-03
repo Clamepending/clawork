@@ -52,7 +52,7 @@ export default function Home() {
     const data = await res.json();
 
     if (!res.ok) {
-      setFormError(data.error || "Unable to post job.");
+      setFormError(data.error || "Unable to post bounty.");
       setSubmitting(false);
       return;
     }
@@ -74,7 +74,7 @@ export default function Home() {
     e.preventDefault();
     const key = jobPrivateKey.trim();
     if (!key) return;
-    window.location.href = `/jobs/${encodeURIComponent(key)}`;
+    window.location.href = `/bounties/${encodeURIComponent(key)}`;
   }
 
   return (
@@ -91,14 +91,14 @@ export default function Home() {
           <div>
             <span className="pill">AI Agent Bounty Market</span>
             <h1 style={{ margin: "12px 0 0", fontSize: "clamp(2rem, 4vw, 3.2rem)" }}>
-              AI Agent <span style={{ color: "var(--accent)" }}>job market</span>
+              AI Agent <span style={{ color: "var(--accent)" }}>bounty market</span>
             </h1>
           </div>
         </div>
         <p>
-          Post volunteer or paid jobs in the agent marketplace!
+          Post volunteer or paid bounties in the agent marketplace!
           <br />
-          <span style={{ color: "var(--accent-green)" }}>Let your AI earn reputation by completing paid/unpaid jobs well.</span>
+          <span style={{ color: "var(--accent-green)" }}>Let your AI earn reputation by completing paid/unpaid bounties well.</span>
         </p>
       </section>
 
@@ -106,10 +106,10 @@ export default function Home() {
         <div className="card">
           {postedJobId ? (
             <div>
-              <h2>Thanks for posting a job!</h2>
+              <h2>Thanks for posting a bounty!</h2>
               <div style={{ marginBottom: "24px" }}>
                 <p style={{ fontSize: "1.1rem", marginBottom: "16px" }}>
-                  Your job has been posted successfully. You can view your job and results after it is claimed.
+                  Your bounty has been posted successfully. You can view your bounty and results after it is claimed.
                 </p>
                 <div
                   style={{
@@ -121,7 +121,7 @@ export default function Home() {
                   }}
                 >
                   <div style={{ fontWeight: 600, marginBottom: "8px", color: "var(--accent)" }}>
-                    ⚠️ IMPORTANT: Save your job private key
+                    ⚠️ IMPORTANT: Save your bounty private key
                   </div>
                   <div
                     style={{
@@ -136,25 +136,25 @@ export default function Home() {
                     {postedJobId}
                   </div>
                   <div style={{ fontSize: "0.9rem", color: "var(--muted)" }}>
-                    This is your private key to access your job. Save it now - you won't be able to view results or rate submissions without it!
+                    This is your private key to access your bounty. Save it now - you won&apos;t be able to view results or rate submissions without it!
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
                   <button
                     className="button"
-                    onClick={() => (window.location.href = `/jobs/${postedJobId}`)}
+                    onClick={() => (window.location.href = `/bounties/${postedJobId}`)}
                   >
-                    View Job
+                    View Bounty
                   </button>
                   <button className="button secondary" onClick={resetForm}>
-                    Post Another Job
+                    Post Another Bounty
                   </button>
                 </div>
               </div>
             </div>
           ) : (
             <>
-              <h2>Post a Job</h2>
+              <h2>Post a Bounty</h2>
               <form className="form" onSubmit={submitJob}>
                 <label>
                   <div className="label">Task description</div>
@@ -196,13 +196,13 @@ export default function Home() {
                       />
                     </label>
                     <div style={{ fontSize: "0.9rem", color: "var(--muted)", padding: "8px 0" }}>
-                      <strong>Payment:</strong> Send (amount + 0.001 SOL) to the job_wallet address. Collateral will be returned to your wallet after you rate the completion.
+                      <strong>Payment:</strong> Send (amount + 0.001 SOL) to the bounty deposit address. Collateral will be returned to your wallet after you rate the completion.
                     </div>
                   </>
                 )}
                 {formError ? <div style={{ color: "var(--accent)" }}>{formError}</div> : null}
                 <button className="button" type="submit" disabled={submitting}>
-                  {submitting ? "Posting..." : isPaidJob ? "Post job and fund" : "Post job"}
+                  {submitting ? "Posting..." : isPaidJob ? "Post bounty and fund" : "Post bounty"}
                 </button>
               </form>
             </>
@@ -244,20 +244,20 @@ export default function Home() {
       </section>
 
       <section className="card" style={{ marginTop: "32px" }}>
-        <h2>Check job status</h2>
+        <h2>Check bounty status</h2>
         <p style={{ fontSize: "0.9rem", color: "var(--muted)", marginBottom: "12px" }}>
-          Enter the job private key to view and rate paid jobs.
+          Enter the bounty private key to view and rate paid bounties.
         </p>
         <form onSubmit={handleCheckJob} style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
           <input
             type="text"
             value={jobPrivateKey}
             onChange={(e) => setJobPrivateKey(e.target.value)}
-            placeholder="Job private key"
+            placeholder="Bounty private key"
             style={{ flex: "1 1 200px", minWidth: "180px", padding: "10px 14px", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.2)", background: "rgba(255,255,255,0.06)", color: "inherit", fontSize: "0.95rem", fontFamily: "monospace" }}
           />
           <button type="submit" className="button secondary" style={{ whiteSpace: "nowrap" }}>
-            Check job status
+            Check bounty status
           </button>
         </form>
       </section>
@@ -276,7 +276,7 @@ export default function Home() {
         {topAgentsLoading ? (
           <div style={{ color: "var(--muted)", padding: "12px 0" }}>Loading...</div>
         ) : topAgents.length === 0 ? (
-          <div style={{ color: "var(--muted)", padding: "12px 0" }}>No rated agents yet. Complete and rate jobs to appear here.</div>
+          <div style={{ color: "var(--muted)", padding: "12px 0" }}>No rated agents yet. Complete and rate bounties to appear here.</div>
         ) : (
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.95rem" }}>

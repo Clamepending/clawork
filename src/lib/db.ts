@@ -442,6 +442,74 @@ export async function createJob(params: {
   };
 }
 
+/** Create a paid job funded from the poster's MoltyBounty verified balance. Deducts amount+collateral and records job + poster_payment. */
+export async function createPaidJobFromBalance(params: {
+  description: string;
+  amount: number;
+  chain: string;
+  posterWallet: string;
+  posterUsername?: string | null;
+  masterWallet: string;
+  jobWallet: string;
+}): Promise<{ id: number; private_id: string; created_at: string } | { success: false; error: string }> {
+  if (usingTurso) {
+    await ensureTursoSchema();
+    const turso = await getTurso();
+    return turso.createPaidJobFromBalanceTurso(params);
+  }
+  const collateralAmount = 0.001;
+  const totalRequired = params.amount + collateralAmount;
+  const deposit = await getDeposit(params.posterWallet, params.chain);
+  if (!deposit) {
+    return { success: false, error: "No MoltyBounty balance for this account on this chain. Deposit or use a different funding method." };
+  }
+  if (deposit.verified_balance < totalRequired) {
+    return {
+      success: false,
+      error: `Insufficient MoltyBounty balance. Need ${totalRequired.toFixed(4)} ${params.chain} (bounty + collateral). Verified balance: ${deposit.verified_balance.toFixed(4)}.`,
+    };
+  }
+
+  const privateId = generatePrivateId();
+  const totalPaid = totalRequired;
+  const posterUsername = params.posterUsername ?? null;
+  const createdAt = new Date().toISOString();
+
+  const run = db.transaction(() => {
+    const newVerified = deposit.verified_balance - totalRequired;
+    const newBalance = deposit.balance - totalRequired;
+    db.prepare("UPDATE deposits SET verified_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?").run(
+      newVerified,
+      newBalance,
+      params.posterWallet,
+      params.chain
+    );
+    const jobInfo = db.prepare(
+      `INSERT INTO jobs (private_id, description, amount, chain, poster_wallet, poster_username, master_wallet, job_wallet, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`
+    ).run(
+      privateId,
+      params.description,
+      params.amount,
+      params.chain,
+      params.posterWallet,
+      posterUsername,
+      params.masterWallet,
+      params.jobWallet,
+      createdAt
+    );
+    const jobId = Number(jobInfo.lastInsertRowid);
+    db.prepare(
+      `INSERT INTO poster_payments (job_id, poster_wallet, job_amount, collateral_amount, total_paid, transaction_hash, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(jobId, params.posterWallet, params.amount, collateralAmount, totalPaid, null, createdAt);
+    return { jobId, privateId, createdAt };
+  });
+
+  const out = run();
+  return { id: out.jobId, private_id: out.privateId, created_at: out.createdAt };
+}
+
 export type PosterPaymentRecord = {
   id: number;
   job_id: number;
@@ -1101,17 +1169,17 @@ export async function deleteJob(privateId: string, posterWallet: string): Promis
   // Get the job
   const job = await getJobByPrivateId(privateId);
   if (!job) {
-    return { success: false, error: "Job not found." };
+    return { success: false, error: "Bounty not found." };
   }
 
   // Verify poster wallet matches
   if (job.poster_wallet !== posterWallet) {
-    return { success: false, error: "Unauthorized. Only the poster can delete this job." };
+    return { success: false, error: "Unauthorized. Only the poster can delete this bounty." };
   }
 
   // Verify job is still open (not claimed)
   if (job.status !== "open") {
-    return { success: false, error: `Cannot delete job. Job status is "${job.status}" (must be "open").` };
+    return { success: false, error: `Cannot delete bounty. Bounty status is "${job.status}" (must be "open").` };
   }
 
   // Get poster payment to return collateral
@@ -1130,7 +1198,7 @@ export async function deleteJob(privateId: string, posterWallet: string): Promis
 
   return {
     success: true,
-    message: `Job deleted successfully. ${payment && !payment.collateral_returned ? `Collateral (${payment.collateral_amount} ${job.chain}) has been returned to your wallet.` : ""}`,
+    message: `Bounty deleted successfully. ${payment && !payment.collateral_returned ? `Collateral (${payment.collateral_amount} ${job.chain}) has been returned to your wallet.` : ""}`,
     collateral_returned: payment && !payment.collateral_returned ? payment.collateral_amount : 0
   };
 }

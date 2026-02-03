@@ -20,7 +20,7 @@ export async function GET(
   }
 
   if (!job) {
-    return NextResponse.json({ error: "Job not found." }, { status: 404 });
+    return NextResponse.json({ error: "Bounty not found." }, { status: 404 });
   }
 
   return NextResponse.json({

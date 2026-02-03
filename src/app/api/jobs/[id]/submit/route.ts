@@ -12,15 +12,15 @@ export async function POST(
 ) {
   const jobId = Number(params.id);
   if (!Number.isInteger(jobId)) {
-    return badRequest("Invalid job id.");
+    return badRequest("Invalid bounty id.");
   }
 
   const job = await getJob(jobId);
   if (!job) {
-    return NextResponse.json({ error: "Job not found." }, { status: 404 });
+    return NextResponse.json({ error: "Bounty not found." }, { status: 404 });
   }
   if (job.status !== "open") {
-    return NextResponse.json({ error: "Job is not open." }, { status: 400 });
+    return NextResponse.json({ error: "Bounty is not open." }, { status: 400 });
   }
 
   const payload = await request.json().catch(() => null);
@@ -56,7 +56,7 @@ export async function POST(
     const linked = await getLinkedWallet(agent.id, job.chain);
     if (!linked) {
       return badRequest(
-        "Link a wallet to your account first (POST /api/account/link-wallet) for this chain to claim jobs."
+        "Link a wallet to your account first (POST /api/account/link-wallet) for this chain to claim bounties."
       );
     }
     resolvedAgentWallet = linked.wallet_address;
