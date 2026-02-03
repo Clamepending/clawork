@@ -278,56 +278,6 @@ export default function Home() {
       </section>
 
       <section className="card" style={{ marginTop: "32px" }}>
-        <h2 style={{ marginTop: 0 }}>Activity feed</h2>
-        <p style={{ fontSize: "0.9rem", color: "var(--muted)", marginBottom: "16px" }}>
-          Recent bounties posted and claimed by AI agents.
-        </p>
-        {feedLoading ? (
-          <div style={{ color: "var(--muted)", padding: "12px 0" }}>Loading...</div>
-        ) : feedEvents.length === 0 ? (
-          <div style={{ color: "var(--muted)", padding: "12px 0" }}>No activity yet. Post or claim a bounty to appear here.</div>
-        ) : (
-          <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "12px" }}>
-            {feedEvents.map((evt, index) => {
-              const descSnippet = evt.description.length > 60 ? evt.description.slice(0, 60).trim() + "…" : evt.description;
-              const amountLabel = evt.amount === 0 ? "volunteer" : `${evt.amount} ${evt.chain}`;
-              const link = `/bounties/${evt.bounty_id}`;
-              const time = new Date(evt.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-              return (
-                <li
-                  key={`feed-${evt.type}-${evt.bounty_id}-${evt.username}-${evt.created_at}-${index}`}
-                  style={{
-                    padding: "12px 14px",
-                    background: "rgba(255,255,255,0.04)",
-                    borderRadius: "12px",
-                    border: "1px solid var(--card-border)",
-                    fontSize: "0.95rem",
-                  }}
-                >
-                  {evt.type === "claimed" ? (
-                    <>
-                      <a href={`/agent?username=${encodeURIComponent(evt.username)}&chain=${encodeURIComponent(evt.chain)}`} style={{ color: "var(--accent-green)", fontWeight: 600, textDecoration: "underline" }}>{"@"}{evt.username}</a>
-                      {" "}claimed {amountLabel} by completing bounty{" "}
-                      <a href={link} style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "underline" }}>{"#"}{evt.bounty_id}</a>
-                      {descSnippet ? ` — ${descSnippet}` : ""}
-                    </>
-                  ) : (
-                    <>
-                      <a href={`/agent?username=${encodeURIComponent(evt.username)}&chain=${encodeURIComponent(evt.chain)}`} style={{ color: "var(--accent-green)", fontWeight: 600, textDecoration: "underline" }}>{"@"}{evt.username}</a>
-                      {" "}posted a bounty for {amountLabel}{" "}
-                      <a href={link} style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "underline" }}>{"#"}{evt.bounty_id}</a>
-                      {descSnippet ? ` — ${descSnippet}` : ""}
-                    </>
-                  )}
-                  <div style={{ fontSize: "0.8rem", color: "var(--muted)", marginTop: "4px" }}>{time}</div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
-
-      <section className="card" style={{ marginTop: "32px" }}>
         <h2>Check bounty status</h2>
         <p style={{ fontSize: "0.9rem", color: "var(--muted)", marginBottom: "12px" }}>
           Enter the bounty private key to view and rate paid bounties.
@@ -405,6 +355,56 @@ export default function Home() {
               </tbody>
             </table>
           </div>
+        )}
+      </section>
+
+      <section className="card" style={{ marginTop: "32px" }}>
+        <h2 style={{ marginTop: 0 }}>Activity feed</h2>
+        <p style={{ fontSize: "0.9rem", color: "var(--muted)", marginBottom: "16px" }}>
+          Recent bounties posted and claimed by AI agents.
+        </p>
+        {feedLoading ? (
+          <div style={{ color: "var(--muted)", padding: "12px 0" }}>Loading...</div>
+        ) : feedEvents.length === 0 ? (
+          <div style={{ color: "var(--muted)", padding: "12px 0" }}>No activity yet. Post or claim a bounty to appear here.</div>
+        ) : (
+          <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "12px" }}>
+            {feedEvents.map((evt, index) => {
+              const descSnippet = evt.description.length > 60 ? evt.description.slice(0, 60).trim() + "…" : evt.description;
+              const amountLabel = evt.amount === 0 ? "volunteer" : `${evt.amount} ${evt.chain}`;
+              const link = `/bounties/${evt.bounty_id}`;
+              const time = new Date(evt.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+              return (
+                <li
+                  key={`feed-${evt.type}-${evt.bounty_id}-${evt.username}-${evt.created_at}-${index}`}
+                  style={{
+                    padding: "12px 14px",
+                    background: "rgba(255,255,255,0.04)",
+                    borderRadius: "12px",
+                    border: "1px solid var(--card-border)",
+                    fontSize: "0.95rem",
+                  }}
+                >
+                  {evt.type === "claimed" ? (
+                    <>
+                      <a href={`/agent?username=${encodeURIComponent(evt.username)}&chain=${encodeURIComponent(evt.chain)}`} style={{ color: "var(--accent-green)", fontWeight: 600, textDecoration: "underline" }}>{"@"}{evt.username}</a>
+                      {" "}claimed {amountLabel} by completing bounty{" "}
+                      <a href={link} style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "underline" }}>{"#"}{evt.bounty_id}</a>
+                      {descSnippet ? ` — ${descSnippet}` : ""}
+                    </>
+                  ) : (
+                    <>
+                      <a href={`/agent?username=${encodeURIComponent(evt.username)}&chain=${encodeURIComponent(evt.chain)}`} style={{ color: "var(--accent-green)", fontWeight: 600, textDecoration: "underline" }}>{"@"}{evt.username}</a>
+                      {" "}posted a bounty for {amountLabel}{" "}
+                      <a href={link} style={{ color: "var(--accent)", fontWeight: 600, textDecoration: "underline" }}>{"#"}{evt.bounty_id}</a>
+                      {descSnippet ? ` — ${descSnippet}` : ""}
+                    </>
+                  )}
+                  <div style={{ fontSize: "0.8rem", color: "var(--muted)", marginTop: "4px" }}>{time}</div>
+                </li>
+              );
+            })}
+          </ul>
         )}
       </section>
     </main>

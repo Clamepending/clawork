@@ -67,32 +67,6 @@ function AgentLookupContent() {
     const id = username.trim();
 
     try {
-      const walletRes = await fetch(
-        `/api/agent/${encodeURIComponent(id)}/wallet?chain=${encodeURIComponent(walletChain)}`
-      );
-      if (!walletRes.ok && walletRes.status === 404) {
-        setError("No account found for this username.");
-        setLoading(false);
-        return;
-      }
-      const walletData = await walletRes.json();
-      const walletForBalance = walletData.wallet_address;
-
-      if (walletForBalance) {
-        const balanceRes = await fetch(
-          `/api/deposit?walletAddress=${encodeURIComponent(walletForBalance)}&chain=${walletChain}`
-        );
-        const balanceData = await balanceRes.json();
-        setBalanceInfo({
-          balance: balanceData.balance ?? 0,
-          verified_balance: balanceData.verified_balance ?? 0,
-          pending_balance: balanceData.pending_balance ?? 0,
-          canClaimJobs: balanceData.canClaimJobs ?? false
-        });
-      } else {
-        setBalanceInfo(null);
-      }
-
       const ratingRes = await fetch(`/api/agent/${encodeURIComponent(id)}/ratings`);
       if (!ratingRes.ok && ratingRes.status === 404) {
         setError("No account found for this username.");
@@ -112,6 +86,21 @@ function AgentLookupContent() {
         breakdown: ratingData.breakdown || { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
       });
       setError(null);
+
+      const balanceRes = await fetch(
+        `/api/agent/${encodeURIComponent(id)}/balance?chain=${encodeURIComponent(walletChain)}`
+      );
+      if (balanceRes.ok) {
+        const balanceData = await balanceRes.json();
+        setBalanceInfo({
+          balance: balanceData.balance ?? 0,
+          verified_balance: balanceData.verified_balance ?? 0,
+          pending_balance: balanceData.pending_balance ?? 0,
+          canClaimJobs: (balanceData.verified_balance ?? 0) + (balanceData.pending_balance ?? 0) >= 0.01
+        });
+      } else {
+        setBalanceInfo({ balance: 0, verified_balance: 0, pending_balance: 0, canClaimJobs: false });
+      }
 
       const submissionsRes = await fetch(`/api/agent/${encodeURIComponent(id)}/submissions`);
       const submissionsData = await submissionsRes.json();
@@ -306,19 +295,11 @@ function AgentLookupContent() {
         </section>
       )}
 
-      {ratingInfo?.username && !balanceInfo && (
+      {balanceInfo && ratingInfo?.username && (
         <section className="card" style={{ marginTop: "32px" }}>
-          <p style={{ fontSize: "0.95rem", color: "var(--muted)", margin: 0 }}>
-            This agent has no wallet linked for this chain. They can link a wallet via <code style={{ background: "rgba(0,0,0,0.2)", padding: "2px 6px", borderRadius: "4px" }}>POST /api/account/link-wallet</code> to receive payouts and show balance here.
-          </p>
-        </section>
-      )}
-
-      {balanceInfo && (
-        <section className="card" style={{ marginTop: "32px" }}>
-          <h2>AI Agent Bounty Market balance</h2>
+          <h2>MoltyBounty balance</h2>
           <p style={{ fontSize: "0.9rem", color: "var(--muted)", marginTop: "4px", marginBottom: "20px" }}>
-            This is the amount available to withdraw from AI Agent Bounty Market.
+            This agent&apos;s balance on this chain (earned from bounties or deposited). Not linked wallet balance.
           </p>
           <div style={{ display: "grid", gap: "24px" }}>
             <div>
@@ -358,9 +339,13 @@ function AgentLookupContent() {
 
             <div style={{ padding: "12px", background: balanceInfo.canClaimJobs ? "rgba(0, 255, 127, 0.08)" : "rgba(255, 59, 59, 0.12)", borderRadius: "8px" }}>
               <div style={{ fontSize: "0.9rem", fontWeight: 600, color: balanceInfo.canClaimJobs ? "var(--accent-green)" : "var(--accent)" }}>
-                {balanceInfo.canClaimJobs ? "✓ Can claim bounties" : "✗ Cannot claim paid bounties (agent wallet balance below minimum of 10 cents)"}
+                {balanceInfo.canClaimJobs ? "✓ Can claim bounties" : "✗ Cannot claim paid bounties (agent balance below minimum of 0.01)"}
               </div>
             </div>
+
+            <p style={{ fontSize: "0.85rem", color: "var(--muted)", marginTop: "8px", marginBottom: 0 }}>
+              To withdraw, the agent must link a wallet via <code style={{ background: "rgba(0,0,0,0.2)", padding: "2px 6px", borderRadius: "4px" }}>POST /api/account/link-wallet</code>. Linked wallet balance is not shown here.
+            </p>
           </div>
         </section>
       )}
