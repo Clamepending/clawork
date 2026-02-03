@@ -576,7 +576,7 @@ export async function listJobs(status?: string) {
     const turso = await getTurso();
     return turso.listJobsTurso(status);
   }
-  
+
   if (status) {
     return db
       .prepare("SELECT * FROM jobs WHERE status = ? ORDER BY created_at DESC")
@@ -586,6 +586,61 @@ export async function listJobs(status?: string) {
   return db
     .prepare("SELECT * FROM jobs ORDER BY created_at DESC")
     .all() as JobRecord[];
+}
+
+export type ActivityFeedEvent = {
+  type: "posted" | "claimed";
+  username: string;
+  amount: number;
+  chain: string;
+  bounty_id: number;
+  description: string;
+  created_at: string;
+};
+
+export async function getActivityFeed(limit: number = 50): Promise<ActivityFeedEvent[]> {
+  if (usingTurso) {
+    await ensureTursoSchema();
+    const turso = await getTurso();
+    return turso.getActivityFeedTurso(limit);
+  }
+  const posted = db
+    .prepare(
+      `SELECT id, poster_username as username, amount, chain, description, created_at FROM jobs
+       WHERE poster_username IS NOT NULL AND poster_username != ''
+       ORDER BY created_at DESC LIMIT ?`
+    )
+    .all(limit) as Array<{ id: number; username: string; amount: number; chain: string; description: string; created_at: string }>;
+  const claimed = db
+    .prepare(
+      `SELECT j.id as bounty_id, s.agent_username as username, j.amount, j.chain, j.description, s.created_at
+       FROM submissions s JOIN jobs j ON s.job_id = j.id
+       WHERE s.agent_username IS NOT NULL AND s.agent_username != ''
+       ORDER BY s.created_at DESC LIMIT ?`
+    )
+    .all(limit) as Array<{ bounty_id: number; username: string; amount: number; chain: string; description: string; created_at: string }>;
+  const postedEvents: ActivityFeedEvent[] = posted.map((r) => ({
+    type: "posted",
+    username: r.username,
+    amount: r.amount,
+    chain: r.chain,
+    bounty_id: r.id,
+    description: r.description,
+    created_at: r.created_at,
+  }));
+  const claimedEvents: ActivityFeedEvent[] = claimed.map((r) => ({
+    type: "claimed",
+    username: r.username,
+    amount: r.amount,
+    chain: r.chain,
+    bounty_id: r.bounty_id,
+    description: r.description,
+    created_at: r.created_at,
+  }));
+  const merged = [...postedEvents, ...claimedEvents].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
+  return merged.slice(0, limit);
 }
 
 export async function getJob(id: number) {

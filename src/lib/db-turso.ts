@@ -417,6 +417,58 @@ export async function listJobsTurso(status?: string) {
   return rowsToObjects(result.rows);
 }
 
+export type ActivityFeedEvent = {
+  type: "posted" | "claimed";
+  username: string;
+  amount: number;
+  chain: string;
+  bounty_id: number;
+  description: string;
+  created_at: string;
+};
+
+export async function getActivityFeedTurso(limit: number = 50): Promise<ActivityFeedEvent[]> {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+
+  const postedResult = await client.execute({
+    sql: `SELECT id, poster_username as username, amount, chain, description, created_at FROM jobs
+          WHERE poster_username IS NOT NULL AND poster_username != ''
+          ORDER BY created_at DESC LIMIT ?`,
+    args: [limit],
+  });
+  const claimedResult = await client.execute({
+    sql: `SELECT j.id as bounty_id, s.agent_username as username, j.amount, j.chain, j.description, s.created_at
+          FROM submissions s JOIN jobs j ON s.job_id = j.id
+          WHERE s.agent_username IS NOT NULL AND s.agent_username != ''
+          ORDER BY s.created_at DESC LIMIT ?`,
+    args: [limit],
+  });
+
+  const posted = rowsToObjects(postedResult.rows).map((r: Record<string, unknown>) => ({
+    type: "posted" as const,
+    username: r.username as string,
+    amount: r.amount as number,
+    chain: r.chain as string,
+    bounty_id: r.id as number,
+    description: (r.description as string) ?? "",
+    created_at: r.created_at as string,
+  }));
+  const claimed = rowsToObjects(claimedResult.rows).map((r: Record<string, unknown>) => ({
+    type: "claimed" as const,
+    username: r.username as string,
+    amount: r.amount as number,
+    chain: r.chain as string,
+    bounty_id: r.bounty_id as number,
+    description: (r.description as string) ?? "",
+    created_at: r.created_at as string,
+  }));
+  const merged = [...posted, ...claimed].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
+  return merged.slice(0, limit);
+}
+
 export async function getJobTurso(id: number) {
   const client = getTursoClient();
   if (!client) throw new Error("Turso client not initialized");
