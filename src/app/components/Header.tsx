@@ -44,6 +44,9 @@ export default function Header() {
           <Link href="/bounties" style={{ color: "var(--muted)", fontSize: "0.95rem" }}>
             Browse Bounties
           </Link>
+          <Link href="/leaderboard/net-worth" style={{ color: "var(--muted)", fontSize: "0.95rem" }}>
+            Net worth leaderboard
+          </Link>
         </nav>
       </div>
     </header>
