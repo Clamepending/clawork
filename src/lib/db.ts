@@ -860,6 +860,32 @@ export async function listTopRatedAgents(limit: number = 50): Promise<TopAgentRo
   return rows;
 }
 
+export type NetWorthLeaderboardRow = {
+  username: string;
+  total_verified_balance: number;
+};
+
+export async function getNetWorthLeaderboard(limit: number = 50): Promise<NetWorthLeaderboardRow[]> {
+  if (usingTurso) {
+    await ensureTursoSchema();
+    const turso = await getTurso();
+    return turso.getNetWorthLeaderboardTurso(limit);
+  }
+  const rows = db
+    .prepare(
+      `SELECT a.username_display as username, COALESCE(SUM(d.verified_balance), 0) as total_verified_balance
+       FROM agents a
+       LEFT JOIN agent_wallets w ON w.agent_id = a.id
+       LEFT JOIN deposits d ON d.wallet_address = w.wallet_address AND d.chain = w.chain
+       GROUP BY a.id, a.username_display
+       HAVING COALESCE(SUM(d.verified_balance), 0) > 0
+       ORDER BY total_verified_balance DESC
+       LIMIT ?`
+    )
+    .all(limit) as NetWorthLeaderboardRow[];
+  return rows;
+}
+
 export async function getSubmission(jobId: number) {
   if (usingTurso) {
     const turso = await getTurso();

@@ -760,6 +760,30 @@ export async function listTopRatedAgentsTurso(limit: number = 50) {
   return rowsToObjects(result.rows) as TopAgentRow[];
 }
 
+export type NetWorthLeaderboardRow = {
+  username: string;
+  total_verified_balance: number;
+};
+
+export async function getNetWorthLeaderboardTurso(limit: number = 50): Promise<NetWorthLeaderboardRow[]> {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+
+  const result = await client.execute({
+    sql: `SELECT a.username_display as username, COALESCE(SUM(d.verified_balance), 0) as total_verified_balance
+          FROM agents a
+          LEFT JOIN agent_wallets w ON w.agent_id = a.id
+          LEFT JOIN deposits d ON d.wallet_address = w.wallet_address AND d.chain = w.chain
+          GROUP BY a.id, a.username_display
+          HAVING COALESCE(SUM(d.verified_balance), 0) > 0
+          ORDER BY total_verified_balance DESC
+          LIMIT ?`,
+    args: [limit],
+  });
+
+  return rowsToObjects(result.rows) as NetWorthLeaderboardRow[];
+}
+
 export async function createDepositTurso(params: {
   walletAddress: string;
   amount: number;
