@@ -688,3 +688,80 @@ export async function checkAndApplyLateRatingPenaltiesTurso() {
   
   return lateSubmissions.length;
 }
+
+export async function deleteJobTurso(privateId: string, posterWallet: string) {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+
+  // Get the job
+  const jobResult = await client.execute({
+    sql: "SELECT * FROM jobs WHERE private_id = ?",
+    args: [privateId],
+  });
+
+  const job = rowToObject(jobResult.rows[0]);
+  if (!job) {
+    return { success: false, error: "Job not found." };
+  }
+
+  // Verify poster wallet matches
+  if (job.poster_wallet !== posterWallet) {
+    return { success: false, error: "Unauthorized. Only the poster can delete this job." };
+  }
+
+  // Verify job is still open (not claimed)
+  if (job.status !== "open") {
+    return { success: false, error: `Cannot delete job. Job status is "${job.status}" (must be "open").` };
+  }
+
+  // Get poster payment to return collateral
+  const paymentResult = await client.execute({
+    sql: "SELECT * FROM poster_payments WHERE job_id = ?",
+    args: [job.id],
+  });
+  const payment = rowToObject(paymentResult.rows[0]);
+
+  // Return collateral to poster if payment exists and collateral hasn't been returned
+  if (payment && !payment.collateral_returned) {
+    const posterDeposit = await getDepositTurso(payment.poster_wallet, job.chain);
+    
+    if (posterDeposit) {
+      const newVerifiedBalance = posterDeposit.verified_balance + payment.collateral_amount;
+      const newBalance = posterDeposit.balance + payment.collateral_amount;
+      await client.execute({
+        sql: "UPDATE deposits SET verified_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?",
+        args: [newVerifiedBalance, newBalance, payment.poster_wallet, job.chain],
+      });
+    } else {
+      // Create deposit record for poster if they don't have one
+      await createDepositTurso({
+        walletAddress: payment.poster_wallet,
+        amount: payment.collateral_amount,
+        chain: job.chain,
+        status: "confirmed"
+      });
+      await client.execute({
+        sql: "UPDATE deposits SET verified_balance = balance WHERE wallet_address = ? AND chain = ?",
+        args: [payment.poster_wallet, job.chain],
+      });
+    }
+  }
+
+  // Delete poster payment record
+  await client.execute({
+    sql: "DELETE FROM poster_payments WHERE job_id = ?",
+    args: [job.id],
+  });
+
+  // Delete the job
+  await client.execute({
+    sql: "DELETE FROM jobs WHERE id = ?",
+    args: [job.id],
+  });
+
+  return {
+    success: true,
+    message: `Job deleted successfully. ${payment && !payment.collateral_returned ? `Collateral (${payment.collateral_amount} ${job.chain}) has been returned to your wallet.` : ""}`,
+    collateral_returned: payment && !payment.collateral_returned ? payment.collateral_amount : 0
+  };
+}

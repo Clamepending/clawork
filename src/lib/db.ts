@@ -857,4 +857,48 @@ export async function listWithdrawals(walletAddress?: string) {
     .all() as WithdrawalRecord[];
 }
 
+export async function deleteJob(privateId: string, posterWallet: string): Promise<{ success: boolean; error?: string; message?: string; collateral_returned?: number }> {
+  if (usingTurso) {
+    await ensureTursoSchema();
+    const { deleteJobTurso } = require("./db-turso");
+    return deleteJobTurso(privateId, posterWallet);
+  }
+
+  // Get the job
+  const job = await getJobByPrivateId(privateId);
+  if (!job) {
+    return { success: false, error: "Job not found." };
+  }
+
+  // Verify poster wallet matches
+  if (job.poster_wallet !== posterWallet) {
+    return { success: false, error: "Unauthorized. Only the poster can delete this job." };
+  }
+
+  // Verify job is still open (not claimed)
+  if (job.status !== "open") {
+    return { success: false, error: `Cannot delete job. Job status is "${job.status}" (must be "open").` };
+  }
+
+  // Get poster payment to return collateral
+  const payment = await getPosterPayment(job.id);
+
+  // Return collateral to poster if payment exists and collateral hasn't been returned
+  if (payment && !payment.collateral_returned) {
+    await returnPosterCollateral(job.id, job.chain);
+  }
+
+  // Delete poster payment record
+  db.prepare("DELETE FROM poster_payments WHERE job_id = ?").run(job.id);
+
+  // Delete the job
+  db.prepare("DELETE FROM jobs WHERE id = ?").run(job.id);
+
+  return {
+    success: true,
+    message: `Job deleted successfully. ${payment && !payment.collateral_returned ? `Collateral (${payment.collateral_amount} ${job.chain}) has been returned to your wallet.` : ""}`,
+    collateral_returned: payment && !payment.collateral_returned ? payment.collateral_amount : 0
+  };
+}
+
 export default db;

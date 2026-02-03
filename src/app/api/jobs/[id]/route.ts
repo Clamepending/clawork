@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getJobByPrivateId, getSubmissionByJobPrivateId } from "@/lib/db";
+import { getJobByPrivateId, getSubmissionByJobPrivateId, deleteJob } from "@/lib/db";
 
 export async function GET(
   request: Request,
@@ -35,5 +35,44 @@ export async function GET(
           created_at: submission.created_at
         }
       : null
+  });
+}
+
+export async function DELETE(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  const privateId = params.id;
+
+  const payload = await request.json().catch(() => null);
+  if (!payload) {
+    return NextResponse.json(
+      { error: "Invalid JSON body. Include posterWallet in request body." },
+      { status: 400 }
+    );
+  }
+
+  const posterWallet =
+    typeof payload.posterWallet === "string" ? payload.posterWallet.trim() : "";
+
+  if (!posterWallet) {
+    return NextResponse.json(
+      { error: "posterWallet is required in request body." },
+      { status: 400 }
+    );
+  }
+
+  const result = await deleteJob(privateId, posterWallet);
+
+  if (!result.success) {
+    return NextResponse.json(
+      { error: result.error },
+      { status: result.error?.includes("Unauthorized") ? 403 : 400 }
+    );
+  }
+
+  return NextResponse.json({
+    message: result.message,
+    collateral_returned: result.collateral_returned || 0
   });
 }
