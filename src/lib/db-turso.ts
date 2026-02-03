@@ -464,17 +464,7 @@ export async function updateSubmissionRatingTurso(
   const deadline = submission ? new Date(submission.rating_deadline) : null;
   const isLate = deadline && now > deadline;
 
-  if (isLate && posterWallet) {
-    const posterDeposit = await getDepositTurso(posterWallet, chain);
-    if (posterDeposit) {
-      const latePenalty = 0.01;
-      const newBalance = Math.max(0, posterDeposit.balance - latePenalty);
-      await client.execute({
-        sql: "UPDATE deposits SET balance = ? WHERE wallet_address = ? AND chain = ?",
-        args: [newBalance, posterWallet, chain],
-      });
-    }
-  }
+  // No late penalty — only collateral forfeit when poster does not rate at all.
 
   // Rating 2+ stars: move from pending to verified. Rating 1: remove from pending only (no payout, no penalty).
   if (rating >= 2) {
@@ -930,18 +920,7 @@ export async function checkAndApplyLateRatingPenaltiesTurso() {
   }>;
 
   for (const sub of lateSubmissions) {
-    if (sub.poster_wallet) {
-      const posterDeposit = await getDepositTurso(sub.poster_wallet, sub.chain);
-      if (posterDeposit) {
-        const latePenalty = 0.01;
-        const newBalance = Math.max(0, posterDeposit.balance - latePenalty);
-        await client.execute({
-          sql: "UPDATE deposits SET balance = ? WHERE wallet_address = ? AND chain = ?",
-          args: [newBalance, sub.poster_wallet, sub.chain],
-        });
-      }
-      await returnPosterCollateralTurso(sub.job_id, sub.chain);
-    }
+    // Poster collateral is not returned — keeping it is the only punishment for not rating.
     if (sub.amount > 0) {
       const agentDeposit = await getDepositTurso(sub.agent_wallet, sub.chain);
       if (agentDeposit) {

@@ -770,17 +770,8 @@ export async function updateSubmissionRating(submissionId: number, rating: numbe
   const deadline = submission ? new Date(submission.rating_deadline) : null;
   const isLate = deadline && now > deadline;
   
-  // Apply penalty to poster if rating is late
-  if (isLate && posterWallet) {
-    const posterDeposit = await getDeposit(posterWallet, chain);
-    if (posterDeposit) {
-      const latePenalty = 0.01; // Same penalty amount
-      const newBalance = Math.max(0, posterDeposit.balance - latePenalty);
-      db.prepare("UPDATE deposits SET balance = ? WHERE wallet_address = ? AND chain = ?")
-        .run(newBalance, posterWallet, chain);
-    }
-  }
-  
+  // No late penalty — only collateral forfeit applies when poster does not rate at all (handled in checkAndApplyLateRatingPenalties).
+
   // Rating 2+ stars: move from pending to verified (agent can withdraw). Rating 1: remove from pending only (no payout, no penalty).
   if (rating >= 2) {
     const newPendingBalance = Math.max(0, deposit.pending_balance - jobAmount);
@@ -819,16 +810,7 @@ export async function checkAndApplyLateRatingPenalties() {
   }>;
 
   for (const sub of lateSubmissions) {
-    if (sub.poster_wallet) {
-      const posterDeposit = await getDeposit(sub.poster_wallet, sub.chain);
-      if (posterDeposit) {
-        const latePenalty = 0.01;
-        const newBalance = Math.max(0, posterDeposit.balance - latePenalty);
-        db.prepare("UPDATE deposits SET balance = ? WHERE wallet_address = ? AND chain = ?")
-          .run(newBalance, sub.poster_wallet, sub.chain);
-      }
-      await returnPosterCollateral(sub.job_id, sub.chain);
-    }
+    // Poster collateral is not returned — keeping it is the only punishment for not rating.
     if (sub.amount > 0) {
       const agentDeposit = await getDeposit(sub.agent_wallet, sub.chain);
       if (agentDeposit) {

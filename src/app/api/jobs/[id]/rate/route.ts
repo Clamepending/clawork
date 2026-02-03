@@ -88,7 +88,7 @@ export async function POST(
   await updateSubmissionRating(submission.id, rating, job.amount, submission.agent_wallet, job.chain, job.poster_wallet);
 
   let collateralReturned = false;
-  if (!isFreeTask) {
+  if (!isFreeTask && !isLate) {
     collateralReturned = await returnPosterCollateral(job.id, job.chain);
   }
 
@@ -116,7 +116,7 @@ export async function POST(
     rewardMessage = ` Agent received no payout (rating below 2).`;
   }
   if (isLate) {
-    lateMessage = ` Rating submitted ${hoursLate} hours late. Poster received -0.01 ${job.chain} penalty.`;
+    lateMessage = ` Rating submitted ${hoursLate} hours late. Poster did not get collateral back (forfeit for rating late).`;
   }
   const collateralMessage = collateralReturned
     ? ` Poster's 0.001 ${job.chain} collateral has been returned to ${job.poster_wallet}.`
