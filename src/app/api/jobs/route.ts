@@ -62,6 +62,7 @@ export async function POST(request: Request) {
   let resolvedPosterWallet: string | null = null;
   let resolvedPosterUsername: string | null = null;
 
+  let posterAgentId: number | null = null;
   if (posterUsername && posterPrivateKey) {
     const usernameLower = posterUsername.toLowerCase();
     const agent = await getAgentByUsername(usernameLower);
@@ -72,14 +73,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Invalid username or private key." }, { status: 401 });
     }
     resolvedPosterUsername = agent.username_display;
+    posterAgentId = agent.id;
     if (!isFreeTask) {
       const linked = await getLinkedWallet(agent.id, chain);
-      if (!linked) {
-        return badRequest(
-          "Link a wallet to your account first (POST /api/account/link-wallet) for paid bounties."
-        );
-      }
-      resolvedPosterWallet = linked.wallet_address;
+      if (linked) resolvedPosterWallet = linked.wallet_address;
+      // Paid bounties are funded from MoltyBounty balance (agent_balances), no linked wallet required
     }
   }
 
@@ -102,14 +100,14 @@ export async function POST(request: Request) {
       transactionHash: null,
     });
   } else {
-    if (!resolvedPosterWallet) {
-      return badRequest("Linked wallet is required for paid bounties.");
+    if (posterAgentId == null) {
+      return badRequest("Paid bounties require posterUsername and posterPrivateKey.");
     }
     const balanceResult = await createPaidJobFromBalance({
       description,
       amount,
       chain,
-      posterWallet: resolvedPosterWallet,
+      posterAgentId,
       posterUsername: resolvedPosterUsername ?? undefined,
       masterWallet: jobWallet,
       jobWallet,

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getAgentByUsername, getLinkedWallet, getDeposit, getWalletBalances, processWithdrawal, createWithdrawal } from "@/lib/db";
+import { getAgentByUsername, getLinkedWallet, getAgentBalances, processWithdrawalByAgent, createWithdrawal } from "@/lib/db";
 import { verifyPrivateKey } from "@/lib/agent-auth";
 
 function badRequest(message: string) {
@@ -51,23 +51,22 @@ export async function POST(request: Request) {
   const linked = await getLinkedWallet(agent.id, chain);
   if (!linked) {
     return badRequest(
-      "No wallet linked for this chain. Link a wallet first (POST /api/account/link-wallet) to withdraw."
+      "No wallet linked for this chain. Link a wallet first (POST /api/account/link-wallet) to cash out."
     );
   }
 
   const walletAddress = linked.wallet_address;
-
-  const deposit = await getDeposit(walletAddress, chain);
-  if (!deposit) {
+  const balances = await getAgentBalances(agent.id, chain);
+  if (balances.verified_balance < amount) {
     return NextResponse.json(
       {
-        error: `No MoltyBounty balance for this account on ${chain}. Deposit or earn bounties first.`,
+        error: `Insufficient MoltyBounty balance on ${chain}. Verified: ${balances.verified_balance.toFixed(4)}. Requested: ${amount}.`,
       },
-      { status: 404 }
+      { status: 400 }
     );
   }
 
-  const result = await processWithdrawal(walletAddress, chain, amount);
+  const result = await processWithdrawalByAgent(agent.id, chain, amount);
   if (!result.success) {
     return NextResponse.json(
       { error: result.error },
@@ -84,7 +83,7 @@ export async function POST(request: Request) {
     status: "completed",
   });
 
-  const balances = await getWalletBalances(walletAddress, chain);
+  const balancesAfter = await getAgentBalances(agent.id, chain);
 
   return NextResponse.json({
     withdrawal: {
@@ -98,11 +97,11 @@ export async function POST(request: Request) {
       created_at: withdrawal.created_at,
     },
     balances: {
-      balance: balances.balance,
-      verified_balance: balances.verified_balance,
-      pending_balance: balances.pending_balance,
+      balance: balancesAfter.balance,
+      verified_balance: balancesAfter.verified_balance,
+      pending_balance: balancesAfter.pending_balance,
     },
-    message: `Withdrawal recorded. ${amount} ${chain} will be sent to ${destinationWallet}. Remaining balances: ${balances.verified_balance.toFixed(4)} verified, ${balances.pending_balance.toFixed(4)} pending, ${balances.balance.toFixed(4)} total ${chain}.`,
+    message: `Withdrawal recorded. ${amount} ${chain} will be sent to ${destinationWallet}. Remaining balances: ${balancesAfter.verified_balance.toFixed(4)} verified, ${balancesAfter.pending_balance.toFixed(4)} pending, ${balancesAfter.balance.toFixed(4)} total ${chain}.`,
   });
 }
 

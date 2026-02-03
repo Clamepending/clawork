@@ -171,6 +171,18 @@ db.exec(`
     FOREIGN KEY (agent_id) REFERENCES agents(id)
   );
   CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_wallets_wallet_chain ON agent_wallets(wallet_address, chain);
+
+  CREATE TABLE IF NOT EXISTS agent_balances (
+    agent_id INTEGER NOT NULL,
+    chain TEXT NOT NULL,
+    verified_balance REAL NOT NULL DEFAULT 0.0,
+    pending_balance REAL NOT NULL DEFAULT 0.0,
+    balance REAL NOT NULL DEFAULT 0.0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (agent_id, chain),
+    FOREIGN KEY (agent_id) REFERENCES agents(id)
+  );
 `);
 
 try {
@@ -180,6 +192,11 @@ try {
 }
 try {
   db.exec(`ALTER TABLE submissions ADD COLUMN agent_username TEXT`);
+} catch (error: any) {
+  if (!error.message?.includes("duplicate column")) throw error;
+}
+try {
+  db.exec(`ALTER TABLE submissions ADD COLUMN agent_id INTEGER`);
 } catch (error: any) {
   if (!error.message?.includes("duplicate column")) throw error;
 }
@@ -377,6 +394,108 @@ export async function getAgentByWallet(walletAddress: string, chain: string): Pr
     .get(walletAddress.trim(), chain.trim().toLowerCase()) as AgentRecord | undefined;
 }
 
+// --- Agent balances (MoltyBounty balance by username; no wallet required) ---
+export type AgentBalances = { balance: number; pending_balance: number; verified_balance: number };
+
+export async function getAgentBalances(agentId: number, chain: string): Promise<AgentBalances> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.getAgentBalancesTurso(agentId, chain);
+  }
+  const row = db
+    .prepare("SELECT balance, pending_balance, verified_balance FROM agent_balances WHERE agent_id = ? AND chain = ?")
+    .get(agentId, chain) as { balance: number; pending_balance: number; verified_balance: number } | undefined;
+  return row ?? { balance: 0, pending_balance: 0, verified_balance: 0 };
+}
+
+export async function ensureAgentBalanceRow(agentId: number, chain: string): Promise<void> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.ensureAgentBalanceRowTurso(agentId, chain);
+  }
+  const existing = db.prepare("SELECT 1 FROM agent_balances WHERE agent_id = ? AND chain = ?").get(agentId, chain);
+  if (!existing) {
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO agent_balances (agent_id, chain, verified_balance, pending_balance, balance, created_at, updated_at)
+       VALUES (?, ?, 0, 0, 0, ?, ?)`
+    ).run(agentId, chain, now, now);
+  }
+}
+
+export async function creditAgentPending(agentId: number, chain: string, amount: number): Promise<void> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.creditAgentPendingTurso(agentId, chain, amount);
+  }
+  await ensureAgentBalanceRow(agentId, chain);
+  const row = db.prepare("SELECT pending_balance, balance FROM agent_balances WHERE agent_id = ? AND chain = ?").get(agentId, chain) as { pending_balance: number; balance: number };
+  const newPending = row.pending_balance + amount;
+  const newBalance = row.balance + amount;
+  const now = new Date().toISOString();
+  db.prepare("UPDATE agent_balances SET pending_balance = ?, balance = ?, updated_at = ? WHERE agent_id = ? AND chain = ?")
+    .run(newPending, newBalance, now, agentId, chain);
+}
+
+export async function moveAgentPendingToVerified(agentId: number, chain: string, amount: number): Promise<void> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.moveAgentPendingToVerifiedTurso(agentId, chain, amount);
+  }
+  const row = db.prepare("SELECT pending_balance, verified_balance, balance FROM agent_balances WHERE agent_id = ? AND chain = ?").get(agentId, chain) as { pending_balance: number; verified_balance: number; balance: number } | undefined;
+  if (!row) return;
+  const newPending = Math.max(0, row.pending_balance - amount);
+  const newVerified = row.verified_balance + amount;
+  const newBalance = newPending + newVerified;
+  const now = new Date().toISOString();
+  db.prepare("UPDATE agent_balances SET pending_balance = ?, verified_balance = ?, balance = ?, updated_at = ? WHERE agent_id = ? AND chain = ?")
+    .run(newPending, newVerified, newBalance, now, agentId, chain);
+}
+
+export async function deductAgentPending(agentId: number, chain: string, amount: number): Promise<void> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.deductAgentPendingTurso(agentId, chain, amount);
+  }
+  const row = db.prepare("SELECT pending_balance, balance FROM agent_balances WHERE agent_id = ? AND chain = ?").get(agentId, chain) as { pending_balance: number; balance: number } | undefined;
+  if (!row) return;
+  const newPending = Math.max(0, row.pending_balance - amount);
+  const newBalance = row.balance - amount;
+  const now = new Date().toISOString();
+  db.prepare("UPDATE agent_balances SET pending_balance = ?, balance = ?, updated_at = ? WHERE agent_id = ? AND chain = ?")
+    .run(newPending, newBalance, now, agentId, chain);
+}
+
+export async function debitAgentVerified(agentId: number, chain: string, amount: number): Promise<{ success: boolean; error?: string }> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.debitAgentVerifiedTurso(agentId, chain, amount);
+  }
+  const row = db.prepare("SELECT verified_balance, balance FROM agent_balances WHERE agent_id = ? AND chain = ?").get(agentId, chain) as { verified_balance: number; balance: number } | undefined;
+  if (!row) return { success: false, error: "No balance record for this agent and chain." };
+  if (row.verified_balance < amount) return { success: false, error: `Insufficient verified balance. Available: ${row.verified_balance}, Requested: ${amount}` };
+  const newVerified = row.verified_balance - amount;
+  const newBalance = row.balance - amount;
+  const now = new Date().toISOString();
+  db.prepare("UPDATE agent_balances SET verified_balance = ?, balance = ?, updated_at = ? WHERE agent_id = ? AND chain = ?")
+    .run(newVerified, newBalance, now, agentId, chain);
+  return { success: true };
+}
+
+export async function creditAgentVerified(agentId: number, chain: string, amount: number): Promise<void> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.creditAgentVerifiedTurso(agentId, chain, amount);
+  }
+  await ensureAgentBalanceRow(agentId, chain);
+  const row = db.prepare("SELECT verified_balance, balance FROM agent_balances WHERE agent_id = ? AND chain = ?").get(agentId, chain) as { verified_balance: number; balance: number };
+  const newVerified = row.verified_balance + amount;
+  const newBalance = row.balance + amount;
+  const now = new Date().toISOString();
+  db.prepare("UPDATE agent_balances SET verified_balance = ?, balance = ?, updated_at = ? WHERE agent_id = ? AND chain = ?")
+    .run(newVerified, newBalance, now, agentId, chain);
+}
+
 export async function createJob(params: {
   description: string;
   amount: number;
@@ -442,12 +561,12 @@ export async function createJob(params: {
   };
 }
 
-/** Create a paid job funded from the poster's MoltyBounty verified balance. Deducts amount+collateral and records job + poster_payment. */
+/** Create a paid job funded from the poster's MoltyBounty verified balance (agent account, no wallet required). */
 export async function createPaidJobFromBalance(params: {
   description: string;
   amount: number;
   chain: string;
-  posterWallet: string;
+  posterAgentId: number;
   posterUsername?: string | null;
   masterWallet: string;
   jobWallet: string;
@@ -459,55 +578,44 @@ export async function createPaidJobFromBalance(params: {
   }
   const collateralAmount = 0.001;
   const totalRequired = params.amount + collateralAmount;
-  const deposit = await getDeposit(params.posterWallet, params.chain);
-  if (!deposit) {
-    return { success: false, error: "No MoltyBounty balance for this account on this chain. Deposit or use a different funding method." };
-  }
-  if (deposit.verified_balance < totalRequired) {
+  const balances = await getAgentBalances(params.posterAgentId, params.chain);
+  if (balances.verified_balance < totalRequired) {
     return {
       success: false,
-      error: `Insufficient MoltyBounty balance. Need ${totalRequired.toFixed(4)} ${params.chain} (bounty + collateral). Verified balance: ${deposit.verified_balance.toFixed(4)}.`,
+      error: `Insufficient MoltyBounty balance. Need ${totalRequired.toFixed(4)} ${params.chain} (bounty + collateral). Verified balance: ${balances.verified_balance.toFixed(4)}.`,
     };
   }
+
+  const debitResult = await debitAgentVerified(params.posterAgentId, params.chain, totalRequired);
+  if (!debitResult.success) return { success: false, error: debitResult.error! };
 
   const privateId = generatePrivateId();
   const totalPaid = totalRequired;
   const posterUsername = params.posterUsername ?? null;
   const createdAt = new Date().toISOString();
+  const posterWalletPlaceholder = `moltybounty:${params.posterAgentId}`;
 
-  const run = db.transaction(() => {
-    const newVerified = deposit.verified_balance - totalRequired;
-    const newBalance = deposit.balance - totalRequired;
-    db.prepare("UPDATE deposits SET verified_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?").run(
-      newVerified,
-      newBalance,
-      params.posterWallet,
-      params.chain
-    );
-    const jobInfo = db.prepare(
-      `INSERT INTO jobs (private_id, description, amount, chain, poster_wallet, poster_username, master_wallet, job_wallet, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`
-    ).run(
-      privateId,
-      params.description,
-      params.amount,
-      params.chain,
-      params.posterWallet,
-      posterUsername,
-      params.masterWallet,
-      params.jobWallet,
-      createdAt
-    );
-    const jobId = Number(jobInfo.lastInsertRowid);
-    db.prepare(
-      `INSERT INTO poster_payments (job_id, poster_wallet, job_amount, collateral_amount, total_paid, transaction_hash, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(jobId, params.posterWallet, params.amount, collateralAmount, totalPaid, null, createdAt);
-    return { jobId, privateId, createdAt };
-  });
+  const jobInfo = db.prepare(
+    `INSERT INTO jobs (private_id, description, amount, chain, poster_wallet, poster_username, master_wallet, job_wallet, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`
+  ).run(
+    privateId,
+    params.description,
+    params.amount,
+    params.chain,
+    posterWalletPlaceholder,
+    posterUsername,
+    params.masterWallet,
+    params.jobWallet,
+    createdAt
+  );
+  const jobId = Number(jobInfo.lastInsertRowid);
+  db.prepare(
+    `INSERT INTO poster_payments (job_id, poster_wallet, job_amount, collateral_amount, total_paid, transaction_hash, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(jobId, posterWalletPlaceholder, params.amount, collateralAmount, totalPaid, null, createdAt);
 
-  const out = run();
-  return { id: out.jobId, private_id: out.privateId, created_at: out.createdAt };
+  return { id: jobId, private_id: privateId, created_at: createdAt };
 }
 
 export type PosterPaymentRecord = {
@@ -540,8 +648,18 @@ export async function returnPosterCollateral(jobId: number, chain: string) {
   if (!payment || payment.collateral_returned) {
     return false;
   }
-  
-  // Create or update deposit for poster to return collateral
+
+  if (payment.poster_wallet.startsWith("moltybounty:")) {
+    const agentId = parseInt(payment.poster_wallet.slice("moltybounty:".length), 10);
+    if (Number.isInteger(agentId)) {
+      await creditAgentVerified(agentId, chain, payment.collateral_amount);
+      db.prepare("UPDATE poster_payments SET collateral_returned = 1, returned_at = ? WHERE job_id = ?")
+        .run(new Date().toISOString(), jobId);
+      return true;
+    }
+  }
+
+  // Create or update deposit for poster to return collateral (legacy wallet-funded jobs)
   const posterDeposit = await getDeposit(payment.poster_wallet, chain);
   
   if (posterDeposit) {
@@ -665,6 +783,7 @@ export async function createSubmission(params: {
   response: string;
   agentWallet: string;
   agentUsername?: string | null;
+  agentId?: number | null;
   jobAmount: number;
   chain: string;
 }) {
@@ -675,10 +794,11 @@ export async function createSubmission(params: {
   const createdAt = new Date().toISOString();
   const deadline = new Date(new Date(createdAt).getTime() + 24 * 60 * 60 * 1000).toISOString();
   const agentUsername = params.agentUsername ?? null;
+  const agentId = params.agentId ?? null;
 
   const stmt = db.prepare(
-    `INSERT INTO submissions (job_id, response, agent_wallet, agent_username, status, rating_deadline, created_at)
-     VALUES (@job_id, @response, @agent_wallet, @agent_username, 'submitted', @rating_deadline, @created_at)`
+    `INSERT INTO submissions (job_id, response, agent_wallet, agent_username, agent_id, status, rating_deadline, created_at)
+     VALUES (@job_id, @response, @agent_wallet, @agent_username, @agent_id, 'submitted', @rating_deadline, @created_at)`
   );
 
   const info = stmt.run({
@@ -686,25 +806,29 @@ export async function createSubmission(params: {
     response: params.response,
     agent_wallet: params.agentWallet,
     agent_username: agentUsername,
+    agent_id: agentId,
     rating_deadline: deadline,
     created_at: createdAt
   });
 
   const submissionId = Number(info.lastInsertRowid);
 
-  // Ensure agent has a deposit row (no collateral required; row created on first claim)
-  let deposit = await getDeposit(params.agentWallet, params.chain);
-  if (!deposit) {
-    const createdAtDeposit = new Date().toISOString();
-    db.prepare(
-      `INSERT INTO deposits (wallet_address, amount, chain, transaction_hash, status, balance, pending_balance, verified_balance, created_at)
-       VALUES (?, 0, ?, NULL, 'confirmed', ?, ?, 0, ?)`
-    ).run(params.agentWallet, params.chain, params.jobAmount, params.jobAmount, createdAtDeposit);
+  if (agentId != null) {
+    await creditAgentPending(agentId, params.chain, params.jobAmount);
   } else {
-    const newPendingBalance = deposit.pending_balance + params.jobAmount;
-    const newBalance = deposit.balance + params.jobAmount;
-    db.prepare("UPDATE deposits SET pending_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?")
-      .run(newPendingBalance, newBalance, params.agentWallet, params.chain);
+    let deposit = await getDeposit(params.agentWallet, params.chain);
+    if (!deposit) {
+      const createdAtDeposit = new Date().toISOString();
+      db.prepare(
+        `INSERT INTO deposits (wallet_address, amount, chain, transaction_hash, status, balance, pending_balance, verified_balance, created_at)
+         VALUES (?, 0, ?, NULL, 'confirmed', ?, ?, 0, ?)`
+      ).run(params.agentWallet, params.chain, params.jobAmount, params.jobAmount, createdAtDeposit);
+    } else {
+      const newPendingBalance = deposit.pending_balance + params.jobAmount;
+      const newBalance = deposit.balance + params.jobAmount;
+      db.prepare("UPDATE deposits SET pending_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?")
+        .run(newPendingBalance, newBalance, params.agentWallet, params.chain);
+    }
   }
 
   return {
@@ -873,12 +997,11 @@ export async function getNetWorthLeaderboard(limit: number = 50): Promise<NetWor
   }
   const rows = db
     .prepare(
-      `SELECT a.username_display as username, COALESCE(SUM(d.verified_balance), 0) as total_verified_balance
+      `SELECT a.username_display as username, COALESCE(SUM(ab.verified_balance), 0) as total_verified_balance
        FROM agents a
-       LEFT JOIN agent_wallets w ON w.agent_id = a.id
-       LEFT JOIN deposits d ON d.wallet_address = w.wallet_address AND d.chain = w.chain
+       LEFT JOIN agent_balances ab ON ab.agent_id = a.id
        GROUP BY a.id, a.username_display
-       HAVING COALESCE(SUM(d.verified_balance), 0) > 0
+       HAVING COALESCE(SUM(ab.verified_balance), 0) > 0
        ORDER BY total_verified_balance DESC
        LIMIT ?`
     )
@@ -909,19 +1032,26 @@ export async function updateSubmissionRating(submissionId: number, rating: numbe
   }
   const stmt = db.prepare("UPDATE submissions SET rating = ? WHERE id = ?");
   stmt.run(rating, submissionId);
-  
+
+  const submissionRow = db.prepare("SELECT agent_id FROM submissions WHERE id = ?").get(submissionId) as { agent_id: number | null } | undefined;
+  const agentId = submissionRow?.agent_id ?? null;
+
+  if (agentId != null) {
+    if (rating >= 2) {
+      await moveAgentPendingToVerified(agentId, chain, jobAmount);
+    } else {
+      await deductAgentPending(agentId, chain, jobAmount);
+    }
+    return;
+  }
+
   const deposit = await getDeposit(agentWallet, chain);
   if (!deposit) return;
-  
-  // Check if rating was submitted before deadline
+
   const submission = db.prepare("SELECT rating_deadline, created_at FROM submissions WHERE id = ?").get(submissionId) as { rating_deadline: string; created_at: string } | undefined;
   const now = new Date();
   const deadline = submission ? new Date(submission.rating_deadline) : null;
-  const isLate = deadline && now > deadline;
-  
-  // No late penalty — only collateral forfeit applies when poster does not rate at all (handled in checkAndApplyLateRatingPenalties).
 
-  // Rating 2+ stars: move from pending to verified (agent can withdraw). Rating 1: remove from pending only (no payout, no penalty).
   if (rating >= 2) {
     const newPendingBalance = Math.max(0, deposit.pending_balance - jobAmount);
     const newVerifiedBalance = deposit.verified_balance + jobAmount;
@@ -929,7 +1059,6 @@ export async function updateSubmissionRating(submissionId: number, rating: numbe
     db.prepare("UPDATE deposits SET pending_balance = ?, verified_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?")
       .run(newPendingBalance, newVerifiedBalance, newBalance, agentWallet, chain);
   } else {
-    // 1 star: remove from pending only; no payout to verified, no penalty
     const newPendingBalance = Math.max(0, deposit.pending_balance - jobAmount);
     const newBalance = deposit.verified_balance + newPendingBalance;
     db.prepare("UPDATE deposits SET pending_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?")
@@ -944,7 +1073,7 @@ export async function checkAndApplyLateRatingPenalties() {
   }
   const now = new Date().toISOString();
   const lateSubmissions = db.prepare(`
-    SELECT s.id, s.job_id, s.agent_wallet, s.rating_deadline, j.chain, j.poster_wallet, j.amount
+    SELECT s.id, s.job_id, s.agent_wallet, s.agent_id, s.rating_deadline, j.chain, j.poster_wallet, j.amount
     FROM submissions s
     JOIN jobs j ON s.job_id = j.id
     WHERE s.rating IS NULL AND s.rating_deadline < ?
@@ -952,6 +1081,7 @@ export async function checkAndApplyLateRatingPenalties() {
     id: number;
     job_id: number;
     agent_wallet: string;
+    agent_id: number | null;
     rating_deadline: string;
     chain: string;
     poster_wallet: string | null;
@@ -959,15 +1089,18 @@ export async function checkAndApplyLateRatingPenalties() {
   }>;
 
   for (const sub of lateSubmissions) {
-    // Poster collateral is not returned — keeping it is the only punishment for not rating.
     if (sub.amount > 0) {
-      const agentDeposit = await getDeposit(sub.agent_wallet, sub.chain);
-      if (agentDeposit) {
-        const newPendingBalance = Math.max(0, agentDeposit.pending_balance - sub.amount);
-        const newVerifiedBalance = agentDeposit.verified_balance + sub.amount;
-        const newBalance = newVerifiedBalance + newPendingBalance;
-        db.prepare("UPDATE deposits SET pending_balance = ?, verified_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?")
-          .run(newPendingBalance, newVerifiedBalance, newBalance, sub.agent_wallet, sub.chain);
+      if (sub.agent_id != null) {
+        await moveAgentPendingToVerified(sub.agent_id, sub.chain, sub.amount);
+      } else {
+        const agentDeposit = await getDeposit(sub.agent_wallet, sub.chain);
+        if (agentDeposit) {
+          const newPendingBalance = Math.max(0, agentDeposit.pending_balance - sub.amount);
+          const newVerifiedBalance = agentDeposit.verified_balance + sub.amount;
+          const newBalance = newVerifiedBalance + newPendingBalance;
+          db.prepare("UPDATE deposits SET pending_balance = ?, verified_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?")
+            .run(newPendingBalance, newVerifiedBalance, newBalance, sub.agent_wallet, sub.chain);
+        }
       }
     }
     db.prepare("UPDATE submissions SET rating = 0 WHERE id = ?").run(sub.id);
@@ -996,9 +1129,11 @@ export async function createDeposit(params: {
     const turso = await getTurso();
     return turso.createDepositTurso(params);
   }
-  // Check if deposit already exists
-  const existing = await getDeposit(params.walletAddress, params.chain);
-  
+  // Check if deposit row already exists (query table directly; balance may be from agent_balances when linked)
+  const existing = db
+    .prepare("SELECT * FROM deposits WHERE wallet_address = ? AND chain = ?")
+    .get(params.walletAddress, params.chain) as DepositRecord | undefined;
+
   if (existing) {
     // Update existing deposit and add to balance
     // Additional deposits go to verified_balance (withdrawable)
@@ -1024,6 +1159,8 @@ export async function createDeposit(params: {
       status: params.status || "confirmed",
       created_at: new Date().toISOString()
     });
+    const agent = await getAgentByWallet(params.walletAddress, params.chain);
+    if (agent) await creditAgentVerified(agent.id, params.chain, params.amount);
     return {
       id: existing.id,
       created_at: existing.created_at
@@ -1048,6 +1185,8 @@ export async function createDeposit(params: {
       created_at: createdAt
     });
 
+    const agent = await getAgentByWallet(params.walletAddress, params.chain);
+    if (agent) await creditAgentVerified(agent.id, params.chain, params.amount);
     return {
       id: Number(info.lastInsertRowid),
       created_at: createdAt
@@ -1055,11 +1194,45 @@ export async function createDeposit(params: {
   }
 }
 
-export async function getDeposit(walletAddress: string, chain: string) {
+export async function getDeposit(walletAddress: string, chain: string): Promise<DepositRecord | undefined> {
   if (usingTurso) {
     await ensureTursoSchema();
     const turso = await getTurso();
     return turso.getDepositTurso(walletAddress, chain);
+  }
+  if (walletAddress.startsWith("moltybounty:")) {
+    const agentId = parseInt(walletAddress.slice("moltybounty:".length), 10);
+    if (Number.isInteger(agentId)) {
+      const balances = await getAgentBalances(agentId, chain);
+      return {
+        id: 0,
+        wallet_address: walletAddress,
+        amount: balances.verified_balance,
+        chain,
+        transaction_hash: null,
+        status: "confirmed",
+        balance: balances.balance,
+        pending_balance: balances.pending_balance,
+        verified_balance: balances.verified_balance,
+        created_at: new Date().toISOString(),
+      };
+    }
+  }
+  const agent = await getAgentByWallet(walletAddress, chain);
+  if (agent) {
+    const balances = await getAgentBalances(agent.id, chain);
+    return {
+      id: 0,
+      wallet_address: walletAddress,
+      amount: balances.verified_balance,
+      chain,
+      transaction_hash: null,
+      status: "confirmed",
+      balance: balances.balance,
+      pending_balance: balances.pending_balance,
+      verified_balance: balances.verified_balance,
+      created_at: new Date().toISOString(),
+    };
   }
   return db
     .prepare("SELECT * FROM deposits WHERE wallet_address = ? AND chain = ?")
@@ -1185,6 +1358,30 @@ export async function createWithdrawal(params: {
     id: Number(info.lastInsertRowid),
     created_at: createdAt
   };
+}
+
+/** Deduct from agent's verified balance (for withdrawals when user is identified by username). */
+export async function processWithdrawalByAgent(agentId: number, chain: string, amount: number): Promise<{ success: boolean; error?: string; newBalance?: number; newVerifiedBalance?: number }> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.processWithdrawalByAgentTurso(agentId, chain, amount);
+  }
+  const balances = await getAgentBalances(agentId, chain);
+  if (balances.verified_balance < amount) {
+    return { success: false, error: `Insufficient verified balance. Available: ${balances.verified_balance}, Requested: ${amount}` };
+  }
+  const MINIMUM_BALANCE = 0.01;
+  const newBalance = balances.balance - amount;
+  const newVerifiedBalance = balances.verified_balance - amount;
+  if (newBalance < MINIMUM_BALANCE) {
+    return {
+      success: false,
+      error: `Withdrawal would bring balance below minimum required (${MINIMUM_BALANCE} ${chain}). Current balance: ${balances.balance}, After withdrawal: ${newBalance}`,
+    };
+  }
+  const debitResult = await debitAgentVerified(agentId, chain, amount);
+  if (!debitResult.success) return { success: false, error: debitResult.error };
+  return { success: true, newBalance, newVerifiedBalance };
 }
 
 export async function processWithdrawal(walletAddress: string, chain: string, amount: number): Promise<{ success: boolean; error?: string; newBalance?: number; newVerifiedBalance?: number }> {

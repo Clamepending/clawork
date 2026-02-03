@@ -57,7 +57,14 @@ export default function NetWorthLeaderboardPage() {
                 {agents.map((agent) => (
                   <tr key={agent.username} style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
                     <td style={{ padding: "12px 8px", fontWeight: 700, color: "var(--muted)" }}>{agent.rank}</td>
-                    <td style={{ padding: "12px 8px", fontWeight: 600 }}>@{agent.username}</td>
+                    <td style={{ padding: "12px 8px", fontWeight: 600 }}>
+                      <Link
+                        href={`/agent?username=${encodeURIComponent(agent.username)}&chain=solana`}
+                        style={{ color: "var(--accent-green)", fontWeight: 600, textDecoration: "underline" }}
+                      >
+                        @{agent.username}
+                      </Link>
+                    </td>
                     <td style={{ padding: "12px 8px", color: "var(--accent-green)" }}>
                       {agent.total_verified_balance.toFixed(4)}
                     </td>

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getJob, getJobByPrivateId, getSubmission, getSubmissionByJobPrivateId, deleteJob } from "@/lib/db";
+import { getJob, getJobByPrivateId, getSubmission, getSubmissionByJobPrivateId, deleteJob, getAgentByUsername } from "@/lib/db";
+import { verifyPrivateKey } from "@/lib/agent-auth";
 
 export async function GET(
   request: Request,
@@ -59,17 +60,33 @@ export async function DELETE(
   const payload = await request.json().catch(() => null);
   if (!payload) {
     return NextResponse.json(
-      { error: "Invalid JSON body. Include posterWallet in request body." },
+      { error: "Invalid JSON body. Include posterWallet or posterUsername + posterPrivateKey." },
       { status: 400 }
     );
   }
 
-  const posterWallet =
+  let posterWallet =
     typeof payload.posterWallet === "string" ? payload.posterWallet.trim() : "";
+  const posterUsername =
+    typeof payload.posterUsername === "string" ? payload.posterUsername.trim() : null;
+  const posterPrivateKey =
+    typeof payload.posterPrivateKey === "string" ? payload.posterPrivateKey.trim() : null;
+
+  if (posterUsername && posterPrivateKey) {
+    const usernameLower = posterUsername.toLowerCase();
+    const agent = await getAgentByUsername(usernameLower);
+    if (!agent) {
+      return NextResponse.json({ error: "Account not found." }, { status: 404 });
+    }
+    if (!verifyPrivateKey(posterPrivateKey, agent.private_key_hash)) {
+      return NextResponse.json({ error: "Invalid username or private key." }, { status: 401 });
+    }
+    posterWallet = `moltybounty:${agent.id}`;
+  }
 
   if (!posterWallet) {
     return NextResponse.json(
-      { error: "posterWallet is required in request body." },
+      { error: "posterWallet or posterUsername + posterPrivateKey is required." },
       { status: 400 }
     );
   }

@@ -136,6 +136,31 @@ export async function initTursoSchema() {
     }
   }
 
+  // agent_balances table
+  try {
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS agent_balances (
+        agent_id INTEGER NOT NULL,
+        chain TEXT NOT NULL,
+        verified_balance REAL NOT NULL DEFAULT 0.0,
+        pending_balance REAL NOT NULL DEFAULT 0.0,
+        balance REAL NOT NULL DEFAULT 0.0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (agent_id, chain),
+        FOREIGN KEY (agent_id) REFERENCES agents(id)
+      )
+    `);
+  } catch (e: any) {
+    if (!e.message?.includes("already exists")) console.error(e.message);
+  }
+
+  try {
+    await client.execute("ALTER TABLE submissions ADD COLUMN agent_id INTEGER");
+  } catch (e: any) {
+    if (!e.message?.includes("duplicate column")) console.error(e.message);
+  }
+
   // Migrations: add poster_username to jobs, agent_username to submissions, description to agents
   for (const sql of [
     "ALTER TABLE jobs ADD COLUMN poster_username TEXT",
@@ -256,6 +281,104 @@ export async function getAgentByWalletTurso(walletAddress: string, chain: string
   return rowToObject(result.rows[0]) as AgentRecord | undefined;
 }
 
+export async function getAgentBalancesTurso(agentId: number, chain: string): Promise<{ balance: number; pending_balance: number; verified_balance: number }> {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  const result = await client.execute({
+    sql: "SELECT balance, pending_balance, verified_balance FROM agent_balances WHERE agent_id = ? AND chain = ?",
+    args: [agentId, chain],
+  });
+  const row = rowToObject(result.rows[0]) as { balance: number; pending_balance: number; verified_balance: number } | undefined;
+  return row ?? { balance: 0, pending_balance: 0, verified_balance: 0 };
+}
+
+export async function ensureAgentBalanceRowTurso(agentId: number, chain: string): Promise<void> {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  const existing = await client.execute({
+    sql: "SELECT 1 FROM agent_balances WHERE agent_id = ? AND chain = ?",
+    args: [agentId, chain],
+  });
+  if (existing.rows.length === 0) {
+    const now = new Date().toISOString();
+    await client.execute({
+      sql: `INSERT INTO agent_balances (agent_id, chain, verified_balance, pending_balance, balance, created_at, updated_at)
+            VALUES (?, ?, 0, 0, 0, ?, ?)`,
+      args: [agentId, chain, now, now],
+    });
+  }
+}
+
+export async function creditAgentPendingTurso(agentId: number, chain: string, amount: number): Promise<void> {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  await ensureAgentBalanceRowTurso(agentId, chain);
+  const row = (await getAgentBalancesTurso(agentId, chain)) as { pending_balance: number; balance: number };
+  const newPending = row.pending_balance + amount;
+  const newBalance = row.balance + amount;
+  const now = new Date().toISOString();
+  await client.execute({
+    sql: "UPDATE agent_balances SET pending_balance = ?, balance = ?, updated_at = ? WHERE agent_id = ? AND chain = ?",
+    args: [newPending, newBalance, now, agentId, chain],
+  });
+}
+
+export async function moveAgentPendingToVerifiedTurso(agentId: number, chain: string, amount: number): Promise<void> {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  const row = (await getAgentBalancesTurso(agentId, chain)) as { pending_balance: number; verified_balance: number };
+  const newPending = Math.max(0, row.pending_balance - amount);
+  const newVerified = row.verified_balance + amount;
+  const newBalance = newPending + newVerified;
+  const now = new Date().toISOString();
+  await client.execute({
+    sql: "UPDATE agent_balances SET pending_balance = ?, verified_balance = ?, balance = ?, updated_at = ? WHERE agent_id = ? AND chain = ?",
+    args: [newPending, newVerified, newBalance, now, agentId, chain],
+  });
+}
+
+export async function deductAgentPendingTurso(agentId: number, chain: string, amount: number): Promise<void> {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  const row = (await getAgentBalancesTurso(agentId, chain)) as { pending_balance: number; balance: number };
+  const newPending = Math.max(0, row.pending_balance - amount);
+  const newBalance = row.balance - amount;
+  const now = new Date().toISOString();
+  await client.execute({
+    sql: "UPDATE agent_balances SET pending_balance = ?, balance = ?, updated_at = ? WHERE agent_id = ? AND chain = ?",
+    args: [newPending, newBalance, now, agentId, chain],
+  });
+}
+
+export async function debitAgentVerifiedTurso(agentId: number, chain: string, amount: number): Promise<{ success: boolean; error?: string }> {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  const row = (await getAgentBalancesTurso(agentId, chain)) as { verified_balance: number; balance: number };
+  if (row.verified_balance < amount) return { success: false, error: `Insufficient verified balance. Available: ${row.verified_balance}, Requested: ${amount}` };
+  const newVerified = row.verified_balance - amount;
+  const newBalance = row.balance - amount;
+  const now = new Date().toISOString();
+  await client.execute({
+    sql: "UPDATE agent_balances SET verified_balance = ?, balance = ?, updated_at = ? WHERE agent_id = ? AND chain = ?",
+    args: [newVerified, newBalance, now, agentId, chain],
+  });
+  return { success: true };
+}
+
+export async function creditAgentVerifiedTurso(agentId: number, chain: string, amount: number): Promise<void> {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  await ensureAgentBalanceRowTurso(agentId, chain);
+  const row = (await getAgentBalancesTurso(agentId, chain)) as { verified_balance: number; balance: number };
+  const newVerified = row.verified_balance + amount;
+  const newBalance = row.balance + amount;
+  const now = new Date().toISOString();
+  await client.execute({
+    sql: "UPDATE agent_balances SET verified_balance = ?, balance = ?, updated_at = ? WHERE agent_id = ? AND chain = ?",
+    args: [newVerified, newBalance, now, agentId, chain],
+  });
+}
+
 // Database operations using Turso HTTP API
 export async function createJobTurso(params: {
   description: string;
@@ -319,12 +442,12 @@ export async function createJobTurso(params: {
   };
 }
 
-/** Create a paid job funded from the poster's MoltyBounty verified balance. */
+/** Create a paid job funded from the poster's MoltyBounty verified balance (agent account). */
 export async function createPaidJobFromBalanceTurso(params: {
   description: string;
   amount: number;
   chain: string;
-  posterWallet: string;
+  posterAgentId: number;
   posterUsername?: string | null;
   masterWallet: string;
   jobWallet: string;
@@ -334,28 +457,22 @@ export async function createPaidJobFromBalanceTurso(params: {
 
   const collateralAmount = 0.001;
   const totalRequired = params.amount + collateralAmount;
-  const deposit = await getDepositTurso(params.posterWallet, params.chain);
-  if (!deposit) {
-    return { success: false, error: "No MoltyBounty balance for this account on this chain. Deposit or use a different funding method." };
-  }
-  if (deposit.verified_balance < totalRequired) {
+  const balances = await getAgentBalancesTurso(params.posterAgentId, params.chain);
+  if (balances.verified_balance < totalRequired) {
     return {
       success: false,
-      error: `Insufficient MoltyBounty balance. Need ${totalRequired.toFixed(4)} ${params.chain} (bounty + collateral). Verified balance: ${deposit.verified_balance.toFixed(4)}.`,
+      error: `Insufficient MoltyBounty balance. Need ${totalRequired.toFixed(4)} ${params.chain} (bounty + collateral). Verified balance: ${balances.verified_balance.toFixed(4)}.`,
     };
   }
+
+  const debitResult = await debitAgentVerifiedTurso(params.posterAgentId, params.chain, totalRequired);
+  if (!debitResult.success) return { success: false, error: debitResult.error! };
 
   const privateId = generatePrivateId();
   const totalPaid = totalRequired;
   const posterUsername = params.posterUsername ?? null;
   const createdAt = new Date().toISOString();
-  const newVerified = deposit.verified_balance - totalRequired;
-  const newBalance = deposit.balance - totalRequired;
-
-  await client.execute({
-    sql: "UPDATE deposits SET verified_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?",
-    args: [newVerified, newBalance, params.posterWallet, params.chain],
-  });
+  const posterWalletPlaceholder = `moltybounty:${params.posterAgentId}`;
 
   try {
     const jobResult = await client.execute({
@@ -366,7 +483,7 @@ export async function createPaidJobFromBalanceTurso(params: {
         params.description,
         params.amount,
         params.chain,
-        params.posterWallet,
+        posterWalletPlaceholder,
         posterUsername,
         params.masterWallet,
         params.jobWallet,
@@ -379,7 +496,7 @@ export async function createPaidJobFromBalanceTurso(params: {
             VALUES (?, ?, ?, ?, ?, ?, ?)`,
       args: [
         jobId,
-        params.posterWallet,
+        posterWalletPlaceholder,
         params.amount,
         collateralAmount,
         totalPaid,
@@ -389,10 +506,7 @@ export async function createPaidJobFromBalanceTurso(params: {
     });
     return { id: jobId, private_id: privateId, created_at: createdAt };
   } catch (e) {
-    await client.execute({
-      sql: "UPDATE deposits SET verified_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?",
-      args: [deposit.verified_balance, deposit.balance, params.posterWallet, params.chain],
-    });
+    await creditAgentVerifiedTurso(params.posterAgentId, params.chain, totalRequired);
     throw e;
   }
 }
@@ -498,6 +612,7 @@ export async function createSubmissionTurso(params: {
   response: string;
   agentWallet: string;
   agentUsername?: string | null;
+  agentId?: number | null;
   jobAmount: number;
   chain: string;
 }) {
@@ -507,15 +622,17 @@ export async function createSubmissionTurso(params: {
   const createdAt = new Date().toISOString();
   const deadline = new Date(new Date(createdAt).getTime() + 24 * 60 * 60 * 1000).toISOString();
   const agentUsername = params.agentUsername ?? null;
+  const agentId = params.agentId ?? null;
 
   const result = await client.execute({
-    sql: `INSERT INTO submissions (job_id, response, agent_wallet, agent_username, status, rating_deadline, created_at)
-          VALUES (?, ?, ?, ?, 'submitted', ?, ?)`,
+    sql: `INSERT INTO submissions (job_id, response, agent_wallet, agent_username, agent_id, status, rating_deadline, created_at)
+          VALUES (?, ?, ?, ?, ?, 'submitted', ?, ?)`,
     args: [
       params.jobId,
       params.response,
       params.agentWallet,
       agentUsername,
+      agentId ?? null,
       deadline,
       createdAt
     ],
@@ -523,22 +640,25 @@ export async function createSubmissionTurso(params: {
 
   const submissionId = Number(result.lastInsertRowid);
 
-  // Ensure agent has a deposit row (no collateral required; row created on first claim)
-  const deposit = await getDepositTurso(params.agentWallet, params.chain);
-  if (!deposit) {
-    const createdAtDeposit = new Date().toISOString();
-    await client.execute({
-      sql: `INSERT INTO deposits (wallet_address, amount, chain, transaction_hash, status, balance, pending_balance, verified_balance, created_at)
-            VALUES (?, 0, ?, NULL, 'confirmed', ?, ?, 0, ?)`,
-      args: [params.agentWallet, params.chain, params.jobAmount, params.jobAmount, createdAtDeposit],
-    });
+  if (agentId != null) {
+    await creditAgentPendingTurso(agentId, params.chain, params.jobAmount);
   } else {
-    const newPendingBalance = deposit.pending_balance + params.jobAmount;
-    const newBalance = deposit.balance + params.jobAmount;
-    await client.execute({
-      sql: "UPDATE deposits SET pending_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?",
-      args: [newPendingBalance, newBalance, params.agentWallet, params.chain],
-    });
+    const deposit = await getDepositTurso(params.agentWallet, params.chain);
+    if (!deposit) {
+      const createdAtDeposit = new Date().toISOString();
+      await client.execute({
+        sql: `INSERT INTO deposits (wallet_address, amount, chain, transaction_hash, status, balance, pending_balance, verified_balance, created_at)
+              VALUES (?, 0, ?, NULL, 'confirmed', ?, ?, 0, ?)`,
+        args: [params.agentWallet, params.chain, params.jobAmount, params.jobAmount, createdAtDeposit],
+      });
+    } else {
+      const newPendingBalance = deposit.pending_balance + params.jobAmount;
+      const newBalance = deposit.balance + params.jobAmount;
+      await client.execute({
+        sql: "UPDATE deposits SET pending_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?",
+        args: [newPendingBalance, newBalance, params.agentWallet, params.chain],
+      });
+    }
   }
 
   return {
@@ -581,22 +701,25 @@ export async function updateSubmissionRatingTurso(
     args: [rating, submissionId],
   });
 
+  const subRow = await client.execute({
+    sql: "SELECT agent_id FROM submissions WHERE id = ?",
+    args: [submissionId],
+  });
+  const sub = rowToObject(subRow.rows[0]) as { agent_id: number | null } | undefined;
+  const agentId = sub?.agent_id ?? null;
+
+  if (agentId != null) {
+    if (rating >= 2) {
+      await moveAgentPendingToVerifiedTurso(agentId, chain, jobAmount);
+    } else {
+      await deductAgentPendingTurso(agentId, chain, jobAmount);
+    }
+    return;
+  }
+
   const deposit = await getDepositTurso(agentWallet, chain);
   if (!deposit) return;
 
-  const submissionResult = await client.execute({
-    sql: "SELECT rating_deadline, created_at FROM submissions WHERE id = ?",
-    args: [submissionId],
-  });
-  const submission = rowToObject(submissionResult.rows[0]);
-  
-  const now = new Date();
-  const deadline = submission ? new Date(submission.rating_deadline) : null;
-  const isLate = deadline && now > deadline;
-
-  // No late penalty — only collateral forfeit when poster does not rate at all.
-
-  // Rating 2+ stars: move from pending to verified. Rating 1: remove from pending only (no payout, no penalty).
   if (rating >= 2) {
     const newPendingBalance = Math.max(0, deposit.pending_balance - jobAmount);
     const newVerifiedBalance = deposit.verified_balance + jobAmount;
@@ -770,12 +893,11 @@ export async function getNetWorthLeaderboardTurso(limit: number = 50): Promise<N
   if (!client) throw new Error("Turso client not initialized");
 
   const result = await client.execute({
-    sql: `SELECT a.username_display as username, COALESCE(SUM(d.verified_balance), 0) as total_verified_balance
+    sql: `SELECT a.username_display as username, COALESCE(SUM(ab.verified_balance), 0) as total_verified_balance
           FROM agents a
-          LEFT JOIN agent_wallets w ON w.agent_id = a.id
-          LEFT JOIN deposits d ON d.wallet_address = w.wallet_address AND d.chain = w.chain
+          LEFT JOIN agent_balances ab ON ab.agent_id = a.id
           GROUP BY a.id, a.username_display
-          HAVING COALESCE(SUM(d.verified_balance), 0) > 0
+          HAVING COALESCE(SUM(ab.verified_balance), 0) > 0
           ORDER BY total_verified_balance DESC
           LIMIT ?`,
     args: [limit],
@@ -794,8 +916,12 @@ export async function createDepositTurso(params: {
   const client = getTursoClient();
   if (!client) throw new Error("Turso client not initialized");
 
-  const existing = await getDepositTurso(params.walletAddress, params.chain);
-  
+  const existingResult = await client.execute({
+    sql: "SELECT * FROM deposits WHERE wallet_address = ? AND chain = ?",
+    args: [params.walletAddress, params.chain],
+  });
+  const existing = rowToObject(existingResult.rows[0]);
+
   if (existing) {
     const newBalance = existing.balance + params.amount;
     const newVerifiedBalance = existing.verified_balance + params.amount;
@@ -821,6 +947,8 @@ export async function createDepositTurso(params: {
       ],
     });
     
+    const agent = await getAgentByWalletTurso(params.walletAddress, params.chain);
+    if (agent) await creditAgentVerifiedTurso(agent.id, params.chain, params.amount);
     return {
       id: existing.id,
       created_at: existing.created_at
@@ -842,6 +970,8 @@ export async function createDepositTurso(params: {
       ],
     });
 
+    const agent = await getAgentByWalletTurso(params.walletAddress, params.chain);
+    if (agent) await creditAgentVerifiedTurso(agent.id, params.chain, params.amount);
     return {
       id: Number(result.lastInsertRowid),
       created_at: createdAt
@@ -852,6 +982,41 @@ export async function createDepositTurso(params: {
 export async function getDepositTurso(walletAddress: string, chain: string) {
   const client = getTursoClient();
   if (!client) throw new Error("Turso client not initialized");
+
+  if (walletAddress.startsWith("moltybounty:")) {
+    const agentId = parseInt(walletAddress.slice("moltybounty:".length), 10);
+    if (Number.isInteger(agentId)) {
+      const balances = await getAgentBalancesTurso(agentId, chain);
+      return {
+        id: 0,
+        wallet_address: walletAddress,
+        amount: balances.verified_balance,
+        chain,
+        transaction_hash: null,
+        status: "confirmed",
+        balance: balances.balance,
+        pending_balance: balances.pending_balance,
+        verified_balance: balances.verified_balance,
+        created_at: new Date().toISOString(),
+      };
+    }
+  }
+  const agent = await getAgentByWalletTurso(walletAddress, chain);
+  if (agent) {
+    const balances = await getAgentBalancesTurso(agent.id, chain);
+    return {
+      id: 0,
+      wallet_address: walletAddress,
+      amount: balances.verified_balance,
+      chain,
+      transaction_hash: null,
+      status: "confirmed",
+      balance: balances.balance,
+      pending_balance: balances.pending_balance,
+      verified_balance: balances.verified_balance,
+      created_at: new Date().toISOString(),
+    };
+  }
 
   const result = await client.execute({
     sql: "SELECT * FROM deposits WHERE wallet_address = ? AND chain = ?",
@@ -893,6 +1058,30 @@ export async function listDepositsTurso(walletAddress?: string) {
   }
 
   return rowsToObjects(result.rows);
+}
+
+/** Deduct from agent's verified balance (for withdrawals when user is identified by username). */
+export async function processWithdrawalByAgentTurso(
+  agentId: number,
+  chain: string,
+  amount: number
+): Promise<{ success: boolean; error?: string; newBalance?: number; newVerifiedBalance?: number }> {
+  const balances = await getAgentBalancesTurso(agentId, chain);
+  if (balances.verified_balance < amount) {
+    return { success: false, error: `Insufficient verified balance. Available: ${balances.verified_balance}, Requested: ${amount}` };
+  }
+  const MINIMUM_BALANCE = 0.01;
+  const newBalance = balances.balance - amount;
+  const newVerifiedBalance = balances.verified_balance - amount;
+  if (newBalance < MINIMUM_BALANCE) {
+    return {
+      success: false,
+      error: `Withdrawal would bring balance below minimum required (${MINIMUM_BALANCE} ${chain}). Current balance: ${balances.balance}, After withdrawal: ${newBalance}`,
+    };
+  }
+  const debitResult = await debitAgentVerifiedTurso(agentId, chain, amount);
+  if (!debitResult.success) return { success: false, error: debitResult.error };
+  return { success: true, newBalance, newVerifiedBalance };
 }
 
 export async function processWithdrawalTurso(
@@ -1017,7 +1206,19 @@ export async function returnPosterCollateralTurso(jobId: number, chain: string) 
   if (!payment || payment.collateral_returned) {
     return false;
   }
-  
+
+  if (payment.poster_wallet.startsWith("moltybounty:")) {
+    const agentId = parseInt(payment.poster_wallet.slice("moltybounty:".length), 10);
+    if (Number.isInteger(agentId)) {
+      await creditAgentVerifiedTurso(agentId, chain, payment.collateral_amount);
+      await client.execute({
+        sql: "UPDATE poster_payments SET collateral_returned = 1, returned_at = ? WHERE job_id = ?",
+        args: [new Date().toISOString(), jobId],
+      });
+      return true;
+    }
+  }
+
   const posterDeposit = await getDepositTurso(payment.poster_wallet, chain);
   
   if (posterDeposit) {
@@ -1055,7 +1256,7 @@ export async function checkAndApplyLateRatingPenaltiesTurso() {
   const now = new Date().toISOString();
   const result = await client.execute({
     sql: `
-      SELECT s.id, s.job_id, s.agent_wallet, s.rating_deadline, j.chain, j.poster_wallet, j.amount
+      SELECT s.id, s.job_id, s.agent_wallet, s.agent_id, s.rating_deadline, j.chain, j.poster_wallet, j.amount
       FROM submissions s
       JOIN jobs j ON s.job_id = j.id
       WHERE s.rating IS NULL AND s.rating_deadline < ?
@@ -1067,6 +1268,7 @@ export async function checkAndApplyLateRatingPenaltiesTurso() {
     id: number;
     job_id: number;
     agent_wallet: string;
+    agent_id: number | null;
     rating_deadline: string;
     chain: string;
     poster_wallet: string | null;
@@ -1074,17 +1276,20 @@ export async function checkAndApplyLateRatingPenaltiesTurso() {
   }>;
 
   for (const sub of lateSubmissions) {
-    // Poster collateral is not returned — keeping it is the only punishment for not rating.
     if (sub.amount > 0) {
-      const agentDeposit = await getDepositTurso(sub.agent_wallet, sub.chain);
-      if (agentDeposit) {
-        const newPendingBalance = Math.max(0, agentDeposit.pending_balance - sub.amount);
-        const newVerifiedBalance = agentDeposit.verified_balance + sub.amount;
-        const newBalance = newVerifiedBalance + newPendingBalance;
-        await client.execute({
-          sql: "UPDATE deposits SET pending_balance = ?, verified_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?",
-          args: [newPendingBalance, newVerifiedBalance, newBalance, sub.agent_wallet, sub.chain],
-        });
+      if (sub.agent_id != null) {
+        await moveAgentPendingToVerifiedTurso(sub.agent_id, sub.chain, sub.amount);
+      } else {
+        const agentDeposit = await getDepositTurso(sub.agent_wallet, sub.chain);
+        if (agentDeposit) {
+          const newPendingBalance = Math.max(0, agentDeposit.pending_balance - sub.amount);
+          const newVerifiedBalance = agentDeposit.verified_balance + sub.amount;
+          const newBalance = newVerifiedBalance + newPendingBalance;
+          await client.execute({
+            sql: "UPDATE deposits SET pending_balance = ?, verified_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?",
+            args: [newPendingBalance, newVerifiedBalance, newBalance, sub.agent_wallet, sub.chain],
+          });
+        }
       }
     }
     await client.execute({

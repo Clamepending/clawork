@@ -42,6 +42,7 @@ export async function POST(
 
   let resolvedAgentWallet = agentWallet;
   let resolvedAgentUsername: string | null = null;
+  let agentId: number | null = null;
 
   if (agentUsername && agentPrivateKey) {
     const usernameLower = agentUsername.toLowerCase();
@@ -53,13 +54,14 @@ export async function POST(
       return NextResponse.json({ error: "Invalid username or private key." }, { status: 401 });
     }
     resolvedAgentUsername = agent.username_display;
+    agentId = agent.id;
     const linked = await getLinkedWallet(agent.id, job.chain);
-    if (!linked) {
-      return badRequest(
-        "Link a wallet to your account first (POST /api/account/link-wallet) for this chain to claim bounties."
-      );
+    if (linked) {
+      resolvedAgentWallet = linked.wallet_address;
+    } else {
+      // No wallet linked: use placeholder so balance is tracked by agent account
+      resolvedAgentWallet = `moltybounty:${agent.id}`;
     }
-    resolvedAgentWallet = linked.wallet_address;
   } else {
     if (!resolvedAgentWallet) {
       return badRequest(
@@ -73,6 +75,7 @@ export async function POST(
     response: responseText,
     agentWallet: resolvedAgentWallet,
     agentUsername: resolvedAgentUsername ?? undefined,
+    agentId: agentId ?? undefined,
     jobAmount: job.amount,
     chain: job.chain,
   });
