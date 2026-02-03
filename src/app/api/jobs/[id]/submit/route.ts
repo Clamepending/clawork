@@ -14,7 +14,7 @@ export async function POST(
     return badRequest("Invalid job id.");
   }
 
-  const job = getJob(jobId);
+  const job = await getJob(jobId);
   if (!job) {
     return NextResponse.json({ error: "Job not found." }, { status: 404 });
   }
@@ -39,7 +39,7 @@ export async function POST(
   }
 
   // Check if agent has deposited sufficient collateral
-  if (!hasSufficientCollateral(agentWallet, job.chain, 0.1)) {
+  if (!(await hasSufficientCollateral(agentWallet, job.chain, 0.1))) {
     return NextResponse.json(
       {
         error: `Insufficient collateral. Please deposit at least 0.1 ${job.chain} to the master wallet before claiming jobs. Use POST /api/deposit to record your deposit.`
@@ -50,7 +50,7 @@ export async function POST(
 
   // Check if agent has sufficient balance (at least penalty amount to cover worst case)
   const PENALTY_AMOUNT = 0.01;
-  if (!hasPositiveBalance(agentWallet, job.chain)) {
+  if (!(await hasPositiveBalance(agentWallet, job.chain))) {
     return NextResponse.json(
       {
         error: `Insufficient balance. Your account balance must be at least ${PENALTY_AMOUNT} ${job.chain} to claim jobs (to cover potential penalties). Current balance is too low. Please deposit more collateral to continue claiming jobs. Use POST /api/deposit to add funds.`
@@ -59,7 +59,7 @@ export async function POST(
     );
   }
 
-  const submission = createSubmission({
+  const submission = await createSubmission({
     jobId,
     response: responseText,
     agentWallet,
@@ -68,7 +68,7 @@ export async function POST(
   });
 
   // Mark the job as done when claimed
-  updateJobStatus(jobId, "done");
+  await updateJobStatus(jobId, "done");
 
   return NextResponse.json({
     submission: {

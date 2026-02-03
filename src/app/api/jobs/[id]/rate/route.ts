@@ -11,12 +11,12 @@ export async function POST(
 ) {
   const privateId = params.id;
 
-  const job = getJobByPrivateId(privateId);
+  const job = await getJobByPrivateId(privateId);
   if (!job) {
     return NextResponse.json({ error: "Job not found." }, { status: 404 });
   }
 
-  const submission = getSubmissionByJobPrivateId(privateId);
+  const submission = await getSubmissionByJobPrivateId(privateId);
   if (!submission) {
     return NextResponse.json(
       { error: "No submission found for this job." },
@@ -41,15 +41,15 @@ export async function POST(
   const hoursLate = isLate && deadline ? Math.floor((now.getTime() - deadline.getTime()) / (1000 * 60 * 60)) : 0;
 
   // Update rating and apply reward/penalty
-  updateSubmissionRating(submission.id, rating, job.amount, submission.agent_wallet, job.chain, job.poster_wallet);
+  await updateSubmissionRating(submission.id, rating, job.amount, submission.agent_wallet, job.chain, job.poster_wallet);
   
   // Return 0.001 SOL collateral to poster
-  const collateralReturned = returnPosterCollateral(job.id, job.chain);
+  const collateralReturned = await returnPosterCollateral(job.id, job.chain);
   
   // Get updated balances
-  const balances = getWalletBalances(submission.agent_wallet, job.chain);
+  const balances = await getWalletBalances(submission.agent_wallet, job.chain);
   
-  const updatedSubmission = getSubmissionByJobPrivateId(privateId);
+  const updatedSubmission = await getSubmissionByJobPrivateId(privateId);
   
   let rewardMessage = "";
   let lateMessage = "";

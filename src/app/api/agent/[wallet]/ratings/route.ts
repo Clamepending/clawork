@@ -7,7 +7,7 @@ export async function GET(
 ) {
   const walletAddress = params.wallet;
   
-  const ratings = getAgentRatings(walletAddress);
+  const ratings = await getAgentRatings(walletAddress);
   
   return NextResponse.json({
     wallet_address: walletAddress,

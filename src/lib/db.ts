@@ -3,16 +3,46 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 
-const dbPath = process.env.DATABASE_PATH || "./clawork.db";
-const resolvedPath = path.resolve(process.cwd(), dbPath);
+let db: Database.Database;
 
-if (!fs.existsSync(path.dirname(resolvedPath))) {
-  fs.mkdirSync(path.dirname(resolvedPath), { recursive: true });
+// Initialize database based on environment
+if (process.env.TURSO_DB_URL && process.env.TURSO_DB_AUTH_TOKEN) {
+  // Use Turso HTTP API directly (production/serverless)
+  // Note: For serverless, we use Turso's HTTP API which requires async operations
+  // However, since Next.js API routes are async, this works fine
+  // We'll use better-sqlite3 for local dev, and Turso HTTP for production
+  
+  // In serverless (Vercel), use Turso HTTP API directly
+  // For now, fall back to local SQLite in serverless and use Turso HTTP in API routes
+  // This is a simplified approach - for full Turso support, API routes should use async Turso client
+  
+  // For build time and serverless, create a minimal SQLite file that will be replaced
+  // The actual Turso connection will be made via HTTP in API routes if needed
+  const dbPath = process.env.DATABASE_PATH || "./clawork.db";
+  const resolvedPath = path.resolve(process.cwd(), dbPath);
+  
+  if (!fs.existsSync(path.dirname(resolvedPath))) {
+    fs.mkdirSync(path.dirname(resolvedPath), { recursive: true });
+  }
+  
+  db = new Database(resolvedPath);
+  db.pragma("journal_mode = WAL");
+  
+  // Note: In production, API routes should use Turso HTTP client directly
+  // This local DB is just for schema initialization during build
+  
+} else {
+  // Use local SQLite file (development)
+  const dbPath = process.env.DATABASE_PATH || "./clawork.db";
+  const resolvedPath = path.resolve(process.cwd(), dbPath);
+
+  if (!fs.existsSync(path.dirname(resolvedPath))) {
+    fs.mkdirSync(path.dirname(resolvedPath), { recursive: true });
+  }
+
+  db = new Database(resolvedPath);
+  db.pragma("journal_mode = WAL");
 }
-
-const db = new Database(resolvedPath);
-
-db.pragma("journal_mode = WAL");
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS jobs (
@@ -204,7 +234,24 @@ export type DepositRecord = {
   created_at: string;
 };
 
-export function createJob(params: {
+// Check if using Turso
+const usingTurso = !!(process.env.TURSO_DB_URL && process.env.TURSO_DB_AUTH_TOKEN);
+
+// Initialize Turso schema lazily (on first use)
+let tursoSchemaInitialized = false;
+async function ensureTursoSchema() {
+  if (usingTurso && !tursoSchemaInitialized && typeof window === "undefined") {
+    tursoSchemaInitialized = true;
+    try {
+      const { initTursoSchema } = require("./db-turso");
+      await initTursoSchema();
+    } catch (err: any) {
+      console.error("Failed to initialize Turso schema:", err);
+    }
+  }
+}
+
+export async function createJob(params: {
   description: string;
   amount: number;
   chain: string;
@@ -213,6 +260,11 @@ export function createJob(params: {
   jobWallet: string;
   transactionHash?: string | null;
 }) {
+  if (usingTurso) {
+    await ensureTursoSchema();
+    const { createJobTurso } = require("./db-turso");
+    return createJobTurso(params);
+  }
   const privateId = generatePrivateId();
   const collateralAmount = 0.001;
   const totalPaid = params.amount + collateralAmount;
@@ -272,18 +324,26 @@ export type PosterPaymentRecord = {
   created_at: string;
 };
 
-export function getPosterPayment(jobId: number) {
+export async function getPosterPayment(jobId: number) {
+  if (usingTurso) {
+    const { getPosterPaymentTurso } = require("./db-turso");
+    return getPosterPaymentTurso(jobId);
+  }
   return db.prepare("SELECT * FROM poster_payments WHERE job_id = ?").get(jobId) as PosterPaymentRecord | undefined;
 }
 
-export function returnPosterCollateral(jobId: number, chain: string) {
-  const payment = getPosterPayment(jobId);
+export async function returnPosterCollateral(jobId: number, chain: string) {
+  if (usingTurso) {
+    const { returnPosterCollateralTurso } = require("./db-turso");
+    return returnPosterCollateralTurso(jobId, chain);
+  }
+  const payment = await getPosterPayment(jobId);
   if (!payment || payment.collateral_returned) {
     return false;
   }
   
   // Create or update deposit for poster to return collateral
-  const posterDeposit = getDeposit(payment.poster_wallet, chain);
+  const posterDeposit = await getDeposit(payment.poster_wallet, chain);
   
   if (posterDeposit) {
     // Update existing deposit - add to verified balance (since it's a return)
@@ -293,7 +353,7 @@ export function returnPosterCollateral(jobId: number, chain: string) {
       .run(newVerifiedBalance, newBalance, payment.poster_wallet, chain);
   } else {
     // Create deposit record for poster if they don't have one
-    createDeposit({
+    await createDeposit({
       walletAddress: payment.poster_wallet,
       amount: payment.collateral_amount,
       chain: chain,
@@ -311,7 +371,13 @@ export function returnPosterCollateral(jobId: number, chain: string) {
   return true;
 }
 
-export function listJobs(status?: string) {
+export async function listJobs(status?: string) {
+  if (usingTurso) {
+    await ensureTursoSchema();
+    const { listJobsTurso } = require("./db-turso");
+    return listJobsTurso(status);
+  }
+  
   if (status) {
     return db
       .prepare("SELECT * FROM jobs WHERE status = ? ORDER BY created_at DESC")
@@ -323,21 +389,34 @@ export function listJobs(status?: string) {
     .all() as JobRecord[];
 }
 
-export function getJob(id: number) {
+export async function getJob(id: number) {
+  if (usingTurso) {
+    await ensureTursoSchema();
+    const { getJobTurso } = require("./db-turso");
+    return getJobTurso(id);
+  }
   return db.prepare("SELECT * FROM jobs WHERE id = ?").get(id) as JobRecord | undefined;
 }
 
-export function getJobByPrivateId(privateId: string) {
+export async function getJobByPrivateId(privateId: string) {
+  if (usingTurso) {
+    const { getJobByPrivateIdTurso } = require("./db-turso");
+    return getJobByPrivateIdTurso(privateId);
+  }
   return db.prepare("SELECT * FROM jobs WHERE private_id = ?").get(privateId) as JobRecord | undefined;
 }
 
-export function createSubmission(params: {
+export async function createSubmission(params: {
   jobId: number;
   response: string;
   agentWallet: string;
   jobAmount: number;
   chain: string;
 }) {
+  if (usingTurso) {
+    const { createSubmissionTurso } = require("./db-turso");
+    return createSubmissionTurso(params);
+  }
   // Set rating deadline to 24 hours from now
   const createdAt = new Date().toISOString();
   const deadline = new Date(new Date(createdAt).getTime() + 24 * 60 * 60 * 1000).toISOString();
@@ -358,7 +437,7 @@ export function createSubmission(params: {
   const submissionId = Number(info.lastInsertRowid);
   
   // Add job amount to agent's pending balance
-  const deposit = getDeposit(params.agentWallet, params.chain);
+  const deposit = await getDeposit(params.agentWallet, params.chain);
   if (deposit) {
     const newPendingBalance = deposit.pending_balance + params.jobAmount;
     const newBalance = deposit.balance + params.jobAmount; // Total balance increases with pending
@@ -378,7 +457,11 @@ export function listSubmissions(jobId: number) {
     .all(jobId) as SubmissionRecord[];
 }
 
-export function getAgentRatings(agentWallet: string) {
+export async function getAgentRatings(agentWallet: string) {
+  if (usingTurso) {
+    const { getAgentRatingsTurso } = require("./db-turso");
+    return getAgentRatingsTurso(agentWallet);
+  }
   const submissions = db
     .prepare("SELECT rating, created_at FROM submissions WHERE agent_wallet = ? AND rating IS NOT NULL ORDER BY created_at DESC")
     .all(agentWallet) as { rating: number; created_at: string }[];
@@ -402,23 +485,31 @@ export function getAgentRatings(agentWallet: string) {
   };
 }
 
-export function getSubmission(jobId: number) {
+export async function getSubmission(jobId: number) {
+  if (usingTurso) {
+    const { getSubmissionTurso } = require("./db-turso");
+    return getSubmissionTurso(jobId);
+  }
   return db
     .prepare("SELECT * FROM submissions WHERE job_id = ? ORDER BY created_at DESC LIMIT 1")
     .get(jobId) as SubmissionRecord | undefined;
 }
 
-export function getSubmissionByJobPrivateId(privateId: string) {
-  const job = getJobByPrivateId(privateId);
+export async function getSubmissionByJobPrivateId(privateId: string) {
+  const job = await getJobByPrivateId(privateId);
   if (!job) return undefined;
-  return getSubmission(job.id);
+  return await getSubmission(job.id);
 }
 
-export function updateSubmissionRating(submissionId: number, rating: number, jobAmount: number, agentWallet: string, chain: string, posterWallet: string | null) {
+export async function updateSubmissionRating(submissionId: number, rating: number, jobAmount: number, agentWallet: string, chain: string, posterWallet: string | null) {
+  if (usingTurso) {
+    const { updateSubmissionRatingTurso } = require("./db-turso");
+    return updateSubmissionRatingTurso(submissionId, rating, jobAmount, agentWallet, chain, posterWallet);
+  }
   const stmt = db.prepare("UPDATE submissions SET rating = ? WHERE id = ?");
   stmt.run(rating, submissionId);
   
-  const deposit = getDeposit(agentWallet, chain);
+  const deposit = await getDeposit(agentWallet, chain);
   if (!deposit) return;
   
   // Check if rating was submitted before deadline
@@ -429,7 +520,7 @@ export function updateSubmissionRating(submissionId: number, rating: number, job
   
   // Apply penalty to poster if rating is late
   if (isLate && posterWallet) {
-    const posterDeposit = getDeposit(posterWallet, chain);
+    const posterDeposit = await getDeposit(posterWallet, chain);
     if (posterDeposit) {
       const latePenalty = 0.01; // Same penalty amount
       const newBalance = Math.max(0, posterDeposit.balance - latePenalty);
@@ -463,7 +554,11 @@ export function updateSubmissionRating(submissionId: number, rating: number, job
   }
 }
 
-export function checkAndApplyLateRatingPenalties() {
+export async function checkAndApplyLateRatingPenalties() {
+  if (usingTurso) {
+    const { checkAndApplyLateRatingPenaltiesTurso } = require("./db-turso");
+    return checkAndApplyLateRatingPenaltiesTurso();
+  }
   const now = new Date().toISOString();
   // Find all unrated submissions past their deadline
   const lateSubmissions = db.prepare(`
@@ -483,7 +578,7 @@ export function checkAndApplyLateRatingPenalties() {
   
   for (const sub of lateSubmissions) {
     if (sub.poster_wallet) {
-      const posterDeposit = getDeposit(sub.poster_wallet, sub.chain);
+      const posterDeposit = await getDeposit(sub.poster_wallet, sub.chain);
       if (posterDeposit) {
         const latePenalty = 0.01;
         const newBalance = Math.max(0, posterDeposit.balance - latePenalty);
@@ -498,20 +593,28 @@ export function checkAndApplyLateRatingPenalties() {
   return lateSubmissions.length;
 }
 
-export function updateJobStatus(jobId: number, status: string) {
+export async function updateJobStatus(jobId: number, status: string) {
+  if (usingTurso) {
+    const { updateJobStatusTurso } = require("./db-turso");
+    return updateJobStatusTurso(jobId, status);
+  }
   const stmt = db.prepare("UPDATE jobs SET status = ? WHERE id = ?");
   stmt.run(status, jobId);
 }
 
-export function createDeposit(params: {
+export async function createDeposit(params: {
   walletAddress: string;
   amount: number;
   chain: string;
   transactionHash?: string | null;
   status?: string;
 }) {
+  if (usingTurso) {
+    const { createDepositTurso } = require("./db-turso");
+    return createDepositTurso(params);
+  }
   // Check if deposit already exists
-  const existing = getDeposit(params.walletAddress, params.chain);
+  const existing = await getDeposit(params.walletAddress, params.chain);
   
   if (existing) {
     // Update existing deposit and add to balance
@@ -569,24 +672,37 @@ export function createDeposit(params: {
   }
 }
 
-export function getDeposit(walletAddress: string, chain: string) {
+export async function getDeposit(walletAddress: string, chain: string) {
+  if (usingTurso) {
+    await ensureTursoSchema();
+    const { getDepositTurso } = require("./db-turso");
+    return getDepositTurso(walletAddress, chain);
+  }
   return db
     .prepare("SELECT * FROM deposits WHERE wallet_address = ? AND chain = ?")
     .get(walletAddress, chain) as DepositRecord | undefined;
 }
 
-export function hasSufficientCollateral(walletAddress: string, chain: string, requiredAmount: number = 0.1) {
-  const deposit = getDeposit(walletAddress, chain);
+export async function hasSufficientCollateral(walletAddress: string, chain: string, requiredAmount: number = 0.1) {
+  const deposit = await getDeposit(walletAddress, chain);
   return deposit !== undefined && deposit.status === "confirmed" && deposit.amount >= requiredAmount;
 }
 
-export function getWalletBalance(walletAddress: string, chain: string): number {
-  const deposit = getDeposit(walletAddress, chain);
+export async function getWalletBalance(walletAddress: string, chain: string): Promise<number> {
+  if (usingTurso) {
+    const { getWalletBalanceTurso } = require("./db-turso");
+    return getWalletBalanceTurso(walletAddress, chain);
+  }
+  const deposit = await getDeposit(walletAddress, chain);
   return deposit ? deposit.balance : 0;
 }
 
-export function getWalletBalances(walletAddress: string, chain: string): { balance: number; pending_balance: number; verified_balance: number } {
-  const deposit = getDeposit(walletAddress, chain);
+export async function getWalletBalances(walletAddress: string, chain: string): Promise<{ balance: number; pending_balance: number; verified_balance: number }> {
+  if (usingTurso) {
+    const { getWalletBalancesTurso } = require("./db-turso");
+    return getWalletBalancesTurso(walletAddress, chain);
+  }
+  const deposit = await getDeposit(walletAddress, chain);
   return deposit ? {
     balance: deposit.balance,
     pending_balance: deposit.pending_balance,
@@ -594,15 +710,27 @@ export function getWalletBalances(walletAddress: string, chain: string): { balan
   } : { balance: 0, pending_balance: 0, verified_balance: 0 };
 }
 
-export function updateWalletBalance(walletAddress: string, chain: string, delta: number): number {
-  const deposit = getDeposit(walletAddress, chain);
+export async function updateWalletBalance(walletAddress: string, chain: string, delta: number): Promise<number> {
+  const deposit = await getDeposit(walletAddress, chain);
   if (!deposit) {
     throw new Error(`No deposit found for wallet ${walletAddress} on chain ${chain}`);
   }
   
   const newBalance = Math.max(0, deposit.balance + delta); // Ensure balance doesn't go below 0
-  const stmt = db.prepare("UPDATE deposits SET balance = ? WHERE wallet_address = ? AND chain = ?");
-  stmt.run(newBalance, walletAddress, chain);
+  
+  if (usingTurso) {
+    const client = require("@libsql/client").createClient({
+      url: process.env.TURSO_DB_URL!,
+      authToken: process.env.TURSO_DB_AUTH_TOKEN!,
+    });
+    await client.execute({
+      sql: "UPDATE deposits SET balance = ? WHERE wallet_address = ? AND chain = ?",
+      args: [newBalance, walletAddress, chain],
+    });
+  } else {
+    const stmt = db.prepare("UPDATE deposits SET balance = ? WHERE wallet_address = ? AND chain = ?");
+    stmt.run(newBalance, walletAddress, chain);
+  }
   
   return newBalance;
 }
@@ -610,12 +738,17 @@ export function updateWalletBalance(walletAddress: string, chain: string, delta:
 // Penalty amount for 1-2 star ratings
 const PENALTY_AMOUNT = 0.01;
 
-export function hasPositiveBalance(walletAddress: string, chain: string): boolean {
+export async function hasPositiveBalance(walletAddress: string, chain: string): Promise<boolean> {
   // Require balance >= penalty amount to ensure worst case (1-2 star rating) doesn't go below 0
-  return getWalletBalance(walletAddress, chain) >= PENALTY_AMOUNT;
+  const balance = await getWalletBalance(walletAddress, chain);
+  return balance >= PENALTY_AMOUNT;
 }
 
-export function listDeposits(walletAddress?: string) {
+export async function listDeposits(walletAddress?: string) {
+  if (usingTurso) {
+    const { listDepositsTurso } = require("./db-turso");
+    return listDepositsTurso(walletAddress);
+  }
   if (walletAddress) {
     return db
       .prepare("SELECT * FROM deposits WHERE wallet_address = ? ORDER BY created_at DESC")
@@ -637,7 +770,7 @@ export type WithdrawalRecord = {
   created_at: string;
 };
 
-export function createWithdrawal(params: {
+export async function createWithdrawal(params: {
   walletAddress: string;
   amount: number;
   chain: string;
@@ -645,6 +778,10 @@ export function createWithdrawal(params: {
   transactionHash?: string | null;
   status?: string;
 }) {
+  if (usingTurso) {
+    const { createWithdrawalTurso } = require("./db-turso");
+    return createWithdrawalTurso(params);
+  }
   const stmt = db.prepare(
     `INSERT INTO withdrawals (wallet_address, amount, chain, destination_wallet, transaction_hash, status, created_at)
      VALUES (@wallet_address, @amount, @chain, @destination_wallet, @transaction_hash, @status, @created_at)`
@@ -667,8 +804,12 @@ export function createWithdrawal(params: {
   };
 }
 
-export function processWithdrawal(walletAddress: string, chain: string, amount: number): { success: boolean; error?: string; newBalance?: number; newVerifiedBalance?: number } {
-  const deposit = getDeposit(walletAddress, chain);
+export async function processWithdrawal(walletAddress: string, chain: string, amount: number): Promise<{ success: boolean; error?: string; newBalance?: number; newVerifiedBalance?: number }> {
+  if (usingTurso) {
+    const { processWithdrawalTurso } = require("./db-turso");
+    return processWithdrawalTurso(walletAddress, chain, amount);
+  }
+  const deposit = await getDeposit(walletAddress, chain);
   if (!deposit) {
     return { success: false, error: "No deposit found for this wallet and chain." };
   }
@@ -701,7 +842,11 @@ export function processWithdrawal(walletAddress: string, chain: string, amount: 
   };
 }
 
-export function listWithdrawals(walletAddress?: string) {
+export async function listWithdrawals(walletAddress?: string) {
+  if (usingTurso) {
+    const { listWithdrawalsTurso } = require("./db-turso");
+    return listWithdrawalsTurso(walletAddress);
+  }
   if (walletAddress) {
     return db
       .prepare("SELECT * FROM withdrawals WHERE wallet_address = ? ORDER BY created_at DESC")

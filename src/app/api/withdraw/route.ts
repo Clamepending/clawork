@@ -33,7 +33,7 @@ export async function POST(request: Request) {
   }
 
   // Check if deposit exists
-  const deposit = getDeposit(walletAddress, chain);
+  const deposit = await getDeposit(walletAddress, chain);
   if (!deposit) {
     return NextResponse.json(
       { error: `No deposit found for wallet ${walletAddress} on chain ${chain}. Please deposit first.` },
@@ -42,7 +42,7 @@ export async function POST(request: Request) {
   }
 
   // Process withdrawal (checks balances and minimum requirements)
-  const result = processWithdrawal(walletAddress, chain, amount);
+  const result = await processWithdrawal(walletAddress, chain, amount);
   
   if (!result.success) {
     return NextResponse.json(
@@ -52,7 +52,7 @@ export async function POST(request: Request) {
   }
 
   // Record the withdrawal
-  const withdrawal = createWithdrawal({
+  const withdrawal = await createWithdrawal({
     walletAddress,
     amount,
     chain,
@@ -62,7 +62,7 @@ export async function POST(request: Request) {
   });
 
   // Get updated balances
-  const balances = getWalletBalances(walletAddress, chain);
+  const balances = await getWalletBalances(walletAddress, chain);
 
   return NextResponse.json({
     withdrawal: {
@@ -89,7 +89,7 @@ export async function GET(request: Request) {
   const walletAddress = searchParams.get("walletAddress") || undefined;
 
   const { listWithdrawals } = await import("@/lib/db");
-  const withdrawals = listWithdrawals(walletAddress);
+  const withdrawals = await listWithdrawals(walletAddress);
   
   return NextResponse.json({ withdrawals });
 }

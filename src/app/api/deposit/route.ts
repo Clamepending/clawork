@@ -46,7 +46,7 @@ export async function POST(request: Request) {
   }
 
   // Record the deposit
-  const deposit = createDeposit({
+  const deposit = await createDeposit({
     walletAddress,
     amount,
     chain,
@@ -54,8 +54,8 @@ export async function POST(request: Request) {
     status: "confirmed"
   });
 
-  const existingDeposit = getDeposit(walletAddress, chain);
-  const balances = getWalletBalances(walletAddress, chain);
+  const existingDeposit = await getDeposit(walletAddress, chain);
+  const balances = await getWalletBalances(walletAddress, chain);
 
   return NextResponse.json({
     deposit: {
@@ -81,7 +81,7 @@ export async function GET(request: Request) {
 
   if (walletAddress && chain) {
     const { getDeposit, getWalletBalances } = await import("@/lib/db");
-    const deposit = getDeposit(walletAddress, chain);
+    const deposit = await getDeposit(walletAddress, chain);
     if (!deposit) {
       return NextResponse.json({ 
         deposit: null, 
@@ -91,7 +91,7 @@ export async function GET(request: Request) {
         verified_balance: 0
       });
     }
-    const balances = getWalletBalances(walletAddress, chain);
+    const balances = await getWalletBalances(walletAddress, chain);
     return NextResponse.json({
       deposit,
       balance: balances.balance,
@@ -103,6 +103,6 @@ export async function GET(request: Request) {
   }
 
   const { listDeposits } = await import("@/lib/db");
-  const deposits = listDeposits(walletAddress);
+  const deposits = await listDeposits(walletAddress);
   return NextResponse.json({ deposits });
 }

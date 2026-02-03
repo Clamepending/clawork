@@ -8,11 +8,11 @@ function badRequest(message: string) {
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const status = searchParams.get("status") || undefined;
-  const jobs = listJobs(status || undefined);
+  const jobs = await listJobs(status || undefined);
 
   // Return jobs without master_wallet (agents don't need it in listings)
   // Only include poster_wallet, id, description, amount, chain, status, created_at
-  const publicJobs = jobs.map(job => ({
+  const publicJobs = jobs.map((job: any) => ({
     id: job.id,
     description: job.description,
     amount: job.amount,
@@ -65,7 +65,7 @@ export async function POST(request: Request) {
   const collateralAmount = 0.001;
   const totalRequired = amount + collateralAmount;
 
-  const job = createJob({
+  const job = await createJob({
     description,
     amount,
     chain,

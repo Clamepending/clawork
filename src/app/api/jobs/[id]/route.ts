@@ -7,12 +7,12 @@ export async function GET(
 ) {
   const privateId = params.id;
 
-  const job = getJobByPrivateId(privateId);
+  const job = await getJobByPrivateId(privateId);
   if (!job) {
     return NextResponse.json({ error: "Job not found." }, { status: 404 });
   }
 
-  const submission = getSubmissionByJobPrivateId(privateId);
+  const submission = await getSubmissionByJobPrivateId(privateId);
 
   return NextResponse.json({
     job: {
