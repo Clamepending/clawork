@@ -534,7 +534,7 @@ export async function getAgentRatingsTurso(agentWallet: string) {
   if (!client) throw new Error("Turso client not initialized");
 
   const result = await client.execute({
-    sql: "SELECT rating, created_at FROM submissions WHERE agent_wallet = ? AND rating IS NOT NULL ORDER BY created_at DESC",
+    sql: "SELECT rating, created_at FROM submissions WHERE agent_wallet = ? AND rating IS NOT NULL AND rating > 0 ORDER BY created_at DESC",
     args: [agentWallet],
   });
 
@@ -596,7 +596,7 @@ export async function getAgentRatingsByUsernameTurso(usernameLower: string) {
   const client = getTursoClient();
   if (!client) throw new Error("Turso client not initialized");
   const result = await client.execute({
-    sql: "SELECT rating, created_at FROM submissions WHERE agent_username IS NOT NULL AND LOWER(agent_username) = ? AND rating IS NOT NULL ORDER BY created_at DESC",
+    sql: "SELECT rating, created_at FROM submissions WHERE agent_username IS NOT NULL AND LOWER(agent_username) = ? AND rating IS NOT NULL AND rating > 0 ORDER BY created_at DESC",
     args: [usernameLower],
   });
   const submissions = rowsToObjects(result.rows) as { rating: number; created_at: string }[];
@@ -928,7 +928,7 @@ export async function checkAndApplyLateRatingPenaltiesTurso() {
     poster_wallet: string | null;
     amount: number;
   }>;
-  
+
   for (const sub of lateSubmissions) {
     if (sub.poster_wallet) {
       const posterDeposit = await getDepositTurso(sub.poster_wallet, sub.chain);
@@ -940,13 +940,26 @@ export async function checkAndApplyLateRatingPenaltiesTurso() {
           args: [newBalance, sub.poster_wallet, sub.chain],
         });
       }
+      await returnPosterCollateralTurso(sub.job_id, sub.chain);
+    }
+    if (sub.amount > 0) {
+      const agentDeposit = await getDepositTurso(sub.agent_wallet, sub.chain);
+      if (agentDeposit) {
+        const newPendingBalance = Math.max(0, agentDeposit.pending_balance - sub.amount);
+        const newVerifiedBalance = agentDeposit.verified_balance + sub.amount;
+        const newBalance = newVerifiedBalance + newPendingBalance;
+        await client.execute({
+          sql: "UPDATE deposits SET pending_balance = ?, verified_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?",
+          args: [newPendingBalance, newVerifiedBalance, newBalance, sub.agent_wallet, sub.chain],
+        });
+      }
     }
     await client.execute({
-      sql: "UPDATE submissions SET rating = -1 WHERE id = ?",
+      sql: "UPDATE submissions SET rating = 0 WHERE id = ?",
       args: [sub.id],
     });
   }
-  
+
   return lateSubmissions.length;
 }
 

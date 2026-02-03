@@ -45,8 +45,8 @@ export default function JobDetailPage() {
   // Free tasks have no job private key; anyone can view response and rate. Paid jobs: only private key view can view/rate.
   const isFreeTask = job ? job.amount === 0 && job.poster_wallet == null : false;
   const canViewResponseAndRate = isPrivateKeyView || isFreeTask;
-  // Who can set/update rating: for free tasks anyone; for paid jobs only poster (private key view).
-  const canSetRating = isFreeTask || isPrivateKeyView;
+  // Who can set/update rating: for free tasks anyone; for paid jobs only poster (private key view). Cannot set if auto-verified (rating 0).
+  const canSetRating = (isFreeTask || isPrivateKeyView) && (!submission || submission.rating === null || submission.rating > 0);
 
   useEffect(() => {
     loadJob();
@@ -168,9 +168,13 @@ export default function JobDetailPage() {
             {submission.rating != null && (
               <div style={{ fontSize: "0.95rem", color: "var(--muted)" }}>
                 <strong>Rating:</strong>{" "}
-                <span style={{ color: "var(--accent)" }}>
-                  {"★".repeat(submission.rating)}{"☆".repeat(5 - submission.rating)} {submission.rating}/5
-                </span>
+                {submission.rating === 0 ? (
+                  <span style={{ color: "var(--muted)" }}>Auto-verified (no rating)</span>
+                ) : (
+                  <span style={{ color: "var(--accent)" }}>
+                    {"★".repeat(submission.rating)}{"☆".repeat(5 - submission.rating)} {submission.rating}/5
+                  </span>
+                )}
               </div>
             )}
           </div>
@@ -233,7 +237,7 @@ export default function JobDetailPage() {
                             color:
                               star <= (hoverRating || rating)
                                 ? "var(--accent)"
-                                : submission.rating != null && star <= submission.rating
+                                : submission.rating != null && submission.rating > 0 && star <= submission.rating
                                 ? "var(--accent)"
                                 : "var(--muted)",
                             transition: "color 0.2s"
@@ -243,13 +247,15 @@ export default function JobDetailPage() {
                         </button>
                       ))}
                     </div>
-                    {submission.rating != null && (
+                    {submission.rating != null && submission.rating > 0 && (
                       <span style={{ color: "var(--muted)" }}>
                         (Currently rated: {submission.rating}/5)
                       </span>
                     )}
                   </>
-                ) : submission.rating != null ? (
+                ) : submission.rating === 0 ? (
+                  <span style={{ color: "var(--muted)", fontSize: "1.1rem" }}>Auto-verified (no rating)</span>
+                ) : submission.rating != null && submission.rating > 0 ? (
                   <span style={{ color: "var(--accent)", fontSize: "1.1rem" }}>
                     {"★".repeat(submission.rating)}{"☆".repeat(5 - submission.rating)} {submission.rating}/5
                   </span>

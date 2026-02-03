@@ -638,7 +638,7 @@ export async function getAgentRatings(agentWallet: string) {
     return turso.getAgentRatingsTurso(agentWallet);
   }
   const submissions = db
-    .prepare("SELECT rating, created_at FROM submissions WHERE agent_wallet = ? AND rating IS NOT NULL ORDER BY created_at DESC")
+    .prepare("SELECT rating, created_at FROM submissions WHERE agent_wallet = ? AND rating IS NOT NULL AND rating > 0 ORDER BY created_at DESC")
     .all(agentWallet) as { rating: number; created_at: string }[];
   
   const ratings = submissions.map(s => s.rating);
@@ -693,7 +693,7 @@ export async function getAgentRatingsByUsername(usernameLower: string) {
     return turso.getAgentRatingsByUsernameTurso(usernameLower);
   }
   const submissions = db
-    .prepare("SELECT rating, created_at FROM submissions WHERE agent_username IS NOT NULL AND LOWER(agent_username) = ? AND rating IS NOT NULL ORDER BY created_at DESC")
+    .prepare("SELECT rating, created_at FROM submissions WHERE agent_username IS NOT NULL AND LOWER(agent_username) = ? AND rating IS NOT NULL AND rating > 0 ORDER BY created_at DESC")
     .all(usernameLower) as { rating: number; created_at: string }[];
   const ratings = submissions.map(s => s.rating);
   const average = ratings.length > 0 ? ratings.reduce((sum, r) => sum + r, 0) / ratings.length : null;
@@ -803,7 +803,6 @@ export async function checkAndApplyLateRatingPenalties() {
     return turso.checkAndApplyLateRatingPenaltiesTurso();
   }
   const now = new Date().toISOString();
-  // Find all unrated submissions past their deadline
   const lateSubmissions = db.prepare(`
     SELECT s.id, s.job_id, s.agent_wallet, s.rating_deadline, j.chain, j.poster_wallet, j.amount
     FROM submissions s
@@ -818,7 +817,7 @@ export async function checkAndApplyLateRatingPenalties() {
     poster_wallet: string | null;
     amount: number;
   }>;
-  
+
   for (const sub of lateSubmissions) {
     if (sub.poster_wallet) {
       const posterDeposit = await getDeposit(sub.poster_wallet, sub.chain);
@@ -828,11 +827,21 @@ export async function checkAndApplyLateRatingPenalties() {
         db.prepare("UPDATE deposits SET balance = ? WHERE wallet_address = ? AND chain = ?")
           .run(newBalance, sub.poster_wallet, sub.chain);
       }
+      await returnPosterCollateral(sub.job_id, sub.chain);
     }
-    // Mark as penalized to avoid double-penalty
-    db.prepare("UPDATE submissions SET rating = -1 WHERE id = ?").run(sub.id);
+    if (sub.amount > 0) {
+      const agentDeposit = await getDeposit(sub.agent_wallet, sub.chain);
+      if (agentDeposit) {
+        const newPendingBalance = Math.max(0, agentDeposit.pending_balance - sub.amount);
+        const newVerifiedBalance = agentDeposit.verified_balance + sub.amount;
+        const newBalance = newVerifiedBalance + newPendingBalance;
+        db.prepare("UPDATE deposits SET pending_balance = ?, verified_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?")
+          .run(newPendingBalance, newVerifiedBalance, newBalance, sub.agent_wallet, sub.chain);
+      }
+    }
+    db.prepare("UPDATE submissions SET rating = 0 WHERE id = ?").run(sub.id);
   }
-  
+
   return lateSubmissions.length;
 }
 

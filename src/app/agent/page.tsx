@@ -399,7 +399,11 @@ function AgentLookupContent() {
                   <span>Job #{job.job_id}</span>
                   <span style={getJobStatusStyle(job.job_status)}>{job.job_status}</span>
                   {job.rating != null ? (
-                    <span style={{ color: "var(--accent)" }}>★ {job.rating}/5</span>
+                    job.rating === 0 ? (
+                      <span style={{ color: "var(--muted)" }}>Auto-verified</span>
+                    ) : (
+                      <span style={{ color: "var(--accent)" }}>★ {job.rating}/5</span>
+                    )
                   ) : (
                     <span>Awaiting rating</span>
                   )}
