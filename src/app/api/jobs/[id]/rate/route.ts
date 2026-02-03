@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getJob, getJobByPrivateId, getSubmission, getSubmissionByJobPrivateId, updateSubmissionRating, getWalletBalances, returnPosterCollateral } from "@/lib/db";
+import { getJob, getJobByPrivateId, getSubmission, getSubmissionByJobPrivateId, updateSubmissionRating, getWalletBalances, returnPosterCollateral, getAgentByUsername } from "@/lib/db";
+import { verifyPrivateKey } from "@/lib/agent-auth";
 
 function badRequest(message: string) {
   return NextResponse.json({ error: message }, { status: 400 });
@@ -20,11 +21,12 @@ export async function POST(
     return badRequest("Rating must be an integer between 1 and 5.");
   }
 
-  // Public rating for free tasks: id is numeric job id, no posterWallet required
   const isNumericId = /^\d+$/.test(idParam);
   let job: Awaited<ReturnType<typeof getJob>>;
   let submission: Awaited<ReturnType<typeof getSubmission>>;
   const posterWallet: string | null = typeof payload.posterWallet === "string" ? payload.posterWallet.trim() || null : null;
+  const posterUsername = typeof payload.posterUsername === "string" ? payload.posterUsername.trim() || null : null;
+  const posterPrivateKey = typeof payload.posterPrivateKey === "string" ? payload.posterPrivateKey.trim() || null : null;
 
   if (isNumericId) {
     const jobId = Number(idParam);
@@ -32,10 +34,10 @@ export async function POST(
     if (!job) {
       return NextResponse.json({ error: "Job not found." }, { status: 404 });
     }
-    const isFreeTask = job.amount === 0 && job.poster_wallet == null;
+    const isFreeTask = job.amount === 0 && job.poster_wallet == null && !job.poster_username;
     if (!isFreeTask) {
       return NextResponse.json(
-        { error: "Public rating is only allowed for free tasks (amount 0, no poster). Use the poster private link with posterWallet for paid jobs." },
+        { error: "Public rating is only allowed for free tasks (amount 0, no poster). Use the poster private link with posterWallet or posterUsername+posterPrivateKey for paid jobs." },
         { status: 400 }
       );
     }
@@ -45,11 +47,25 @@ export async function POST(
     if (!job) {
       return NextResponse.json({ error: "Job not found." }, { status: 404 });
     }
-    if (!posterWallet) {
-      return badRequest("posterWallet is required in request body for paid job rating.");
-    }
-    if (job.poster_wallet !== posterWallet) {
-      return NextResponse.json({ error: "Unauthorized. Only the poster can rate this job." }, { status: 403 });
+    if (posterUsername && posterPrivateKey) {
+      const usernameLower = posterUsername.toLowerCase();
+      const agent = await getAgentByUsername(usernameLower);
+      if (!agent) {
+        return NextResponse.json({ error: "Account not found." }, { status: 404 });
+      }
+      if (!verifyPrivateKey(posterPrivateKey, agent.private_key_hash)) {
+        return NextResponse.json({ error: "Invalid username or private key." }, { status: 401 });
+      }
+      const jobPosterLower = (job.poster_username || "").toLowerCase();
+      if (jobPosterLower !== agent.username_lower) {
+        return NextResponse.json({ error: "Unauthorized. Only the poster can rate this job." }, { status: 403 });
+      }
+    } else if (posterWallet) {
+      if (job.poster_wallet !== posterWallet) {
+        return NextResponse.json({ error: "Unauthorized. Only the poster can rate this job." }, { status: 403 });
+      }
+    } else {
+      return badRequest("posterWallet or posterUsername+posterPrivateKey is required for paid job rating.");
     }
     submission = await getSubmissionByJobPrivateId(idParam);
   }
@@ -61,7 +77,7 @@ export async function POST(
     );
   }
 
-  const isFreeTask = job.amount === 0 && job.poster_wallet == null;
+  const isFreeTask = job.amount === 0 && job.poster_wallet == null && !job.poster_username;
 
   // Check for late rating (only relevant for paid jobs with poster)
   const now = new Date();

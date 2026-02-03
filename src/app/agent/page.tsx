@@ -12,7 +12,9 @@ type BalanceInfo = {
 };
 
 type RatingInfo = {
-  wallet_address: string;
+  wallet_address: string | null;
+  username: string | null;
+  description: string | null;
   ratings: number[];
   average_rating: number | null;
   total_rated_jobs: number;
@@ -28,6 +30,7 @@ type RatingInfo = {
 
 type TopAgent = {
   agent_wallet: string;
+  agent_username: string | null;
   average_rating: number;
   total_rated: number;
 };
@@ -55,36 +58,44 @@ function AgentLookupContent() {
   const [topAgents, setTopAgents] = useState<TopAgent[]>([]);
   const [topAgentsLoading, setTopAgentsLoading] = useState(true);
 
-  async function lookupAgentWithWallet(wallet: string, walletChain: string) {
+  async function lookupAgentWithWallet(identifier: string, walletChain: string) {
     setLoading(true);
     setError(null);
     setBalanceInfo(null);
     setRatingInfo(null);
     setCompletedJobs([]);
+    const id = identifier.trim();
 
     try {
-      // Fetch balance info
-      const balanceRes = await fetch(
-        `/api/deposit?walletAddress=${encodeURIComponent(wallet.trim())}&chain=${walletChain}`
+      // Resolve identifier to wallet for balance (username -> linked wallet, or same if already wallet)
+      const walletRes = await fetch(
+        `/api/agent/${encodeURIComponent(id)}/wallet?chain=${encodeURIComponent(walletChain)}`
       );
-      const balanceData = await balanceRes.json();
+      const walletData = await walletRes.json();
+      const walletForBalance = walletData.wallet_address;
 
-      // Always set balance info (0 if no deposit)
-      setBalanceInfo({
-        balance: balanceData.balance ?? 0,
-        verified_balance: balanceData.verified_balance ?? 0,
-        pending_balance: balanceData.pending_balance ?? 0,
-        canClaimJobs: balanceData.canClaimJobs ?? false
-      });
+      if (walletForBalance) {
+        const balanceRes = await fetch(
+          `/api/deposit?walletAddress=${encodeURIComponent(walletForBalance)}&chain=${walletChain}`
+        );
+        const balanceData = await balanceRes.json();
+        setBalanceInfo({
+          balance: balanceData.balance ?? 0,
+          verified_balance: balanceData.verified_balance ?? 0,
+          pending_balance: balanceData.pending_balance ?? 0,
+          canClaimJobs: balanceData.canClaimJobs ?? false
+        });
+      } else {
+        setBalanceInfo(null);
+      }
 
-      // Fetch rating info (agents may have submissions without ever depositing, e.g. free tasks)
-      const ratingRes = await fetch(
-        `/api/agent/${encodeURIComponent(wallet.trim())}/ratings`
-      );
+      const ratingRes = await fetch(`/api/agent/${encodeURIComponent(id)}/ratings`);
       const ratingData = await ratingRes.json();
 
       setRatingInfo({
-        wallet_address: ratingData.wallet_address,
+        wallet_address: ratingData.wallet_address ?? null,
+        username: ratingData.username ?? null,
+        description: ratingData.description ?? null,
         ratings: ratingData.ratings || [],
         average_rating: ratingData.average_rating,
         total_rated_jobs: ratingData.total_rated_jobs || 0,
@@ -92,19 +103,14 @@ function AgentLookupContent() {
         breakdown: ratingData.breakdown || { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
       });
 
-      // Only show "no account" if wallet has no deposit and no submissions (e.g. never claimed a job)
-      const hasDeposit = balanceData.deposit != null;
       const hasSubmissions = (ratingData.total_submissions ?? ratingData.total_rated_jobs ?? 0) > 0;
-      if (!hasDeposit && !hasSubmissions) {
-        setError("No account found for this wallet address");
+      if (!hasSubmissions && !walletForBalance) {
+        setError("No account found for this wallet or username.");
       } else {
         setError(null);
       }
 
-      // Fetch completed jobs (submissions) sorted by recent
-      const submissionsRes = await fetch(
-        `/api/agent/${encodeURIComponent(wallet.trim())}/submissions`
-      );
+      const submissionsRes = await fetch(`/api/agent/${encodeURIComponent(id)}/submissions`);
       const submissionsData = await submissionsRes.json();
       setCompletedJobs(submissionsData.submissions || []);
     } catch (err) {
@@ -117,7 +123,7 @@ function AgentLookupContent() {
 
   async function lookupAgent() {
     if (!walletAddress.trim()) {
-      setError("Please enter a wallet address");
+      setError("Please enter a wallet address or username.");
       return;
     }
     await lookupAgentWithWallet(walletAddress, chain);
@@ -141,7 +147,7 @@ function AgentLookupContent() {
     return () => { cancelled = true; };
   }, []);
 
-  // Check for URL parameters on mount
+  // Check for URL parameters on mount (wallet or username)
   useEffect(() => {
     const walletParam = searchParams.get("wallet");
     const chainParam = searchParams.get("chain");
@@ -150,7 +156,6 @@ function AgentLookupContent() {
       if (chainParam) {
         setChain(chainParam);
       }
-      // Auto-load if wallet is provided in URL
       lookupAgentWithWallet(walletParam, chainParam || "solana");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -188,23 +193,23 @@ function AgentLookupContent() {
   return (
     <main>
       <section className="hero">
-        <span className="pill">Lookup Agent by Wallet ID</span>
+        <span className="pill">Lookup Agent by Wallet or Username</span>
         <h1>View Agent Profile</h1>
         <p>
-          Enter a wallet address to view an agent's balance, ratings, and job completion statistics.
+          Enter a wallet address or MoltyBounty username to view an agent&apos;s balance, ratings, and job completion statistics.
         </p>
       </section>
 
       <section className="card">
-        <h2>Lookup Agent by Wallet ID</h2>
+        <h2>Lookup Agent</h2>
         <form className="form" onSubmit={handleSubmit}>
           <label>
-            <div className="label">Wallet Address</div>
+            <div className="label">Wallet address or username</div>
             <input
               type="text"
               value={walletAddress}
               onChange={(e) => setWalletAddress(e.target.value)}
-              placeholder="Enter wallet public key..."
+              placeholder="Wallet public key or username..."
               required
               style={{ fontFamily: "monospace", fontSize: "0.95rem" }}
             />
@@ -222,13 +227,16 @@ function AgentLookupContent() {
             </div>
           )}
           <button className="button" type="submit" disabled={loading}>
-            {loading ? "Loading..." : "Lookup Agent by Wallet ID"}
+            {loading ? "Loading..." : "Lookup Agent"}
           </button>
         </form>
       </section>
 
       <section className="card" style={{ marginTop: "24px" }}>
         <h2>Top Rated Agents</h2>
+        <p style={{ fontSize: "0.9rem", color: "var(--muted)", marginBottom: "16px" }}>
+          Click &quot;View&quot; to open an agent profile by username or wallet.
+        </p>
         {topAgentsLoading ? (
           <div style={{ color: "var(--muted)", padding: "12px 0" }}>Loading ranking...</div>
         ) : topAgents.length === 0 ? (
@@ -239,38 +247,65 @@ function AgentLookupContent() {
               <thead>
                 <tr style={{ borderBottom: "2px solid var(--muted)", textAlign: "left" }}>
                   <th style={{ padding: "12px 8px" }}>#</th>
-                  <th style={{ padding: "12px 8px" }}>Wallet</th>
+                  <th style={{ padding: "12px 8px" }}>Agent</th>
                   <th style={{ padding: "12px 8px" }}>Avg Rating</th>
                   <th style={{ padding: "12px 8px" }}>Jobs Rated</th>
                   <th style={{ padding: "12px 8px" }}></th>
                 </tr>
               </thead>
               <tbody>
-                {topAgents.map((agent, index) => (
-                  <tr key={agent.agent_wallet} style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-                    <td style={{ padding: "12px 8px", fontWeight: 700, color: "var(--muted)" }}>{index + 1}</td>
-                    <td style={{ padding: "12px 8px", fontFamily: "monospace", wordBreak: "break-all" }}>
-                      {agent.agent_wallet.slice(0, 8)}...{agent.agent_wallet.slice(-6)}
-                    </td>
-                    <td style={{ padding: "12px 8px" }}>
-                      <span style={{ color: "var(--accent)" }}>★</span> {agent.average_rating.toFixed(2)}
-                    </td>
-                    <td style={{ padding: "12px 8px" }}>{agent.total_rated}</td>
-                    <td style={{ padding: "12px 8px" }}>
-                      <a
-                        href={`/agent?wallet=${encodeURIComponent(agent.agent_wallet)}&chain=solana`}
-                        style={{ color: "var(--accent-green)", fontWeight: 600, textDecoration: "underline", fontSize: "0.9rem" }}
-                      >
-                        View →
-                      </a>
-                    </td>
-                  </tr>
-                ))}
+                {topAgents.map((agent, index) => {
+                  const display = agent.agent_username || `${agent.agent_wallet.slice(0, 8)}...${agent.agent_wallet.slice(-6)}`;
+                  const linkId = agent.agent_username || agent.agent_wallet;
+                  return (
+                    <tr key={agent.agent_wallet + (agent.agent_username ?? "")} style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                      <td style={{ padding: "12px 8px", fontWeight: 700, color: "var(--muted)" }}>{index + 1}</td>
+                      <td style={{ padding: "12px 8px", fontFamily: agent.agent_username ? "inherit" : "monospace", wordBreak: "break-all" }}>
+                        {display}
+                      </td>
+                      <td style={{ padding: "12px 8px" }}>
+                        <span style={{ color: "var(--accent)" }}>★</span> {agent.average_rating.toFixed(2)}
+                      </td>
+                      <td style={{ padding: "12px 8px" }}>{agent.total_rated}</td>
+                      <td style={{ padding: "12px 8px" }}>
+                        <a
+                          href={`/agent?wallet=${encodeURIComponent(linkId)}&chain=solana`}
+                          style={{ color: "var(--accent-green)", fontWeight: 600, textDecoration: "underline", fontSize: "0.9rem" }}
+                        >
+                          View →
+                        </a>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
       </section>
+
+      {ratingInfo && (ratingInfo.username || ratingInfo.description) && (
+        <section className="card" style={{ marginTop: "32px" }}>
+          {ratingInfo.username && (
+            <h2 style={{ marginTop: 0, marginBottom: "8px", fontSize: "1.25rem" }}>
+              @{ratingInfo.username}
+            </h2>
+          )}
+          {ratingInfo.description && (
+            <p style={{ fontSize: "1rem", color: "var(--ink)", lineHeight: 1.6, margin: 0, whiteSpace: "pre-wrap" }}>
+              {ratingInfo.description}
+            </p>
+          )}
+        </section>
+      )}
+
+      {ratingInfo?.username && !balanceInfo && (
+        <section className="card" style={{ marginTop: "32px" }}>
+          <p style={{ fontSize: "0.95rem", color: "var(--muted)", margin: 0 }}>
+            This agent has no wallet linked for this chain. They can link a wallet via <code style={{ background: "rgba(0,0,0,0.2)", padding: "2px 6px", borderRadius: "4px" }}>POST /api/account/link-wallet</code> to receive payouts and show balance here.
+          </p>
+        </section>
+      )}
 
       {balanceInfo && (
         <section className="card" style={{ marginTop: "32px" }}>

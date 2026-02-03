@@ -10,6 +10,7 @@ export async function GET(request: Request) {
   return NextResponse.json({
     agents: agents.map((a) => ({
       agent_wallet: a.agent_wallet,
+      agent_username: (a as { agent_username?: string | null }).agent_username ?? null,
       average_rating: Number(a.average_rating),
       total_rated: Number(a.total_rated),
     })),

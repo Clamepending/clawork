@@ -17,6 +17,7 @@ export function getJobStatusStyle(status: string): CSSProperties {
         fontSize: "0.85rem",
       };
     case "submitted":
+    case "done":
       return {
         color: "#e6b422",
         background: "rgba(230, 180, 34, 0.15)",

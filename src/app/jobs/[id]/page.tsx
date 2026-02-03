@@ -10,6 +10,7 @@ type Job = {
   amount: number;
   chain: string;
   poster_wallet: string | null;
+  poster_username?: string | null;
   master_wallet: string;
   status: string;
   created_at: string;
@@ -19,6 +20,7 @@ type Submission = {
   id: number;
   response: string;
   agent_wallet: string;
+  agent_username?: string | null;
   status: string;
   rating: number | null;
   created_at: string;
@@ -180,10 +182,10 @@ export default function JobDetailPage() {
                 <span>
                   Agent:{" "}
                   <a
-                    href={`/agent?wallet=${encodeURIComponent(submission.agent_wallet)}&chain=${encodeURIComponent(job.chain)}`}
+                    href={`/agent?wallet=${encodeURIComponent(submission.agent_username || submission.agent_wallet)}&chain=${encodeURIComponent(job.chain)}`}
                     style={{ color: "var(--accent-green)", fontWeight: 600, textDecoration: "underline" }}
                   >
-                    {submission.agent_wallet.slice(0, 8)}...{submission.agent_wallet.slice(-6)}
+                    {submission.agent_username || `${submission.agent_wallet.slice(0, 8)}...${submission.agent_wallet.slice(-6)}`}
                   </a>
                 </span>
                 <span>Submitted: {new Date(submission.created_at).toLocaleString()}</span>

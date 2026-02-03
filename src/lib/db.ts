@@ -151,6 +151,44 @@ try {
   }
 }
 
+// Agents (MoltyBounty ID) and agent_wallets
+db.exec(`
+  CREATE TABLE IF NOT EXISTS agents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username_lower TEXT NOT NULL UNIQUE,
+    username_display TEXT NOT NULL,
+    private_key_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_agents_username_lower ON agents(username_lower);
+  CREATE TABLE IF NOT EXISTS agent_wallets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id INTEGER NOT NULL,
+    wallet_address TEXT NOT NULL,
+    chain TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(wallet_address, chain),
+    FOREIGN KEY (agent_id) REFERENCES agents(id)
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_wallets_wallet_chain ON agent_wallets(wallet_address, chain);
+`);
+
+try {
+  db.exec(`ALTER TABLE jobs ADD COLUMN poster_username TEXT`);
+} catch (error: any) {
+  if (!error.message?.includes("duplicate column")) throw error;
+}
+try {
+  db.exec(`ALTER TABLE submissions ADD COLUMN agent_username TEXT`);
+} catch (error: any) {
+  if (!error.message?.includes("duplicate column")) throw error;
+}
+try {
+  db.exec(`ALTER TABLE agents ADD COLUMN description TEXT`);
+} catch (error: any) {
+  if (!error.message?.includes("duplicate column")) throw error;
+}
+
 // Add rating_deadline column to submissions table if it doesn't exist (migration)
 try {
   db.exec(`ALTER TABLE submissions ADD COLUMN rating_deadline TEXT`);
@@ -204,6 +242,7 @@ export type JobRecord = {
   amount: number;
   chain: string;
   poster_wallet: string | null;
+  poster_username?: string | null;
   master_wallet: string;
   job_wallet: string;
   status: string;
@@ -215,6 +254,7 @@ export type SubmissionRecord = {
   job_id: number;
   response: string;
   agent_wallet: string;
+  agent_username?: string | null;
   status: string;
   rating: number | null;
   rating_deadline: string;
@@ -258,11 +298,91 @@ async function ensureTursoSchema() {
   }
 }
 
+// --- Agents (MoltyBounty ID) ---
+export type AgentRecord = {
+  id: number;
+  username_lower: string;
+  username_display: string;
+  private_key_hash: string;
+  description?: string | null;
+  created_at: string;
+};
+
+export async function createAgent(params: {
+  usernameLower: string;
+  usernameDisplay: string;
+  privateKeyHash: string;
+  description?: string | null;
+}): Promise<{ id: number; username_lower: string; username_display: string; created_at: string }> {
+  if (usingTurso) {
+    await ensureTursoSchema();
+    const turso = await getTurso();
+    return turso.createAgentTurso(params);
+  }
+  const createdAt = new Date().toISOString();
+  const description = params.description ?? null;
+  const info = db.prepare(
+    `INSERT INTO agents (username_lower, username_display, private_key_hash, description, created_at) VALUES (?, ?, ?, ?, ?)`
+  ).run(params.usernameLower, params.usernameDisplay, params.privateKeyHash, description, createdAt);
+  return {
+    id: Number(info.lastInsertRowid),
+    username_lower: params.usernameLower,
+    username_display: params.usernameDisplay,
+    created_at: createdAt,
+  };
+}
+
+export async function getAgentByUsername(usernameLower: string): Promise<AgentRecord | undefined> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.getAgentByUsernameTurso(usernameLower);
+  }
+  return db.prepare("SELECT * FROM agents WHERE username_lower = ?").get(usernameLower) as AgentRecord | undefined;
+}
+
+export async function linkWallet(params: { agentId: number; walletAddress: string; chain: string }): Promise<void> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.linkWalletTurso(params);
+  }
+  const chain = params.chain.trim().toLowerCase();
+  const wallet = params.walletAddress.trim();
+  db.prepare("DELETE FROM agent_wallets WHERE agent_id = ? AND chain = ?").run(params.agentId, chain);
+  const createdAt = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO agent_wallets (agent_id, wallet_address, chain, created_at) VALUES (?, ?, ?, ?)`
+  ).run(params.agentId, wallet, chain, createdAt);
+}
+
+export async function getLinkedWallet(agentId: number, chain: string): Promise<{ wallet_address: string } | undefined> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.getLinkedWalletTurso(agentId, chain);
+  }
+  const row = db
+    .prepare("SELECT wallet_address FROM agent_wallets WHERE agent_id = ? AND chain = ?")
+    .get(agentId, chain.trim().toLowerCase()) as { wallet_address: string } | undefined;
+  return row;
+}
+
+export async function getAgentByWallet(walletAddress: string, chain: string): Promise<AgentRecord | undefined> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.getAgentByWalletTurso(walletAddress, chain);
+  }
+  return db
+    .prepare(
+      `SELECT a.* FROM agents a JOIN agent_wallets w ON w.agent_id = a.id WHERE w.wallet_address = ? AND w.chain = ?`
+    )
+    .get(walletAddress.trim(), chain.trim().toLowerCase()) as AgentRecord | undefined;
+}
+
 export async function createJob(params: {
   description: string;
   amount: number;
   chain: string;
   posterWallet: string | null;
+  posterUsername?: string | null;
   masterWallet: string;
   jobWallet: string;
   transactionHash?: string | null;
@@ -276,10 +396,11 @@ export async function createJob(params: {
   const isFreeTask = params.amount === 0;
   const collateralAmount = 0.001;
   const totalPaid = params.amount + collateralAmount;
-  
+  const posterUsername = params.posterUsername ?? null;
+
   const jobStmt = db.prepare(
-    `INSERT INTO jobs (private_id, description, amount, chain, poster_wallet, master_wallet, job_wallet, status, created_at)
-     VALUES (@private_id, @description, @amount, @chain, @poster_wallet, @master_wallet, @job_wallet, 'open', @created_at)`
+    `INSERT INTO jobs (private_id, description, amount, chain, poster_wallet, poster_username, master_wallet, job_wallet, status, created_at)
+     VALUES (@private_id, @description, @amount, @chain, @poster_wallet, @poster_username, @master_wallet, @job_wallet, 'open', @created_at)`
   );
 
   const createdAt = new Date().toISOString();
@@ -289,6 +410,7 @@ export async function createJob(params: {
     amount: params.amount,
     chain: params.chain,
     poster_wallet: params.posterWallet,
+    poster_username: posterUsername,
     master_wallet: params.masterWallet,
     job_wallet: params.jobWallet,
     created_at: createdAt
@@ -419,6 +541,7 @@ export async function createSubmission(params: {
   jobId: number;
   response: string;
   agentWallet: string;
+  agentUsername?: string | null;
   jobAmount: number;
   chain: string;
 }) {
@@ -426,19 +549,20 @@ export async function createSubmission(params: {
     const turso = await getTurso();
     return turso.createSubmissionTurso(params);
   }
-  // Set rating deadline to 24 hours from now
   const createdAt = new Date().toISOString();
   const deadline = new Date(new Date(createdAt).getTime() + 24 * 60 * 60 * 1000).toISOString();
-  
+  const agentUsername = params.agentUsername ?? null;
+
   const stmt = db.prepare(
-    `INSERT INTO submissions (job_id, response, agent_wallet, status, rating_deadline, created_at)
-     VALUES (@job_id, @response, @agent_wallet, 'submitted', @rating_deadline, @created_at)`
+    `INSERT INTO submissions (job_id, response, agent_wallet, agent_username, status, rating_deadline, created_at)
+     VALUES (@job_id, @response, @agent_wallet, @agent_username, 'submitted', @rating_deadline, @created_at)`
   );
 
   const info = stmt.run({
     job_id: params.jobId,
     response: params.response,
     agent_wallet: params.agentWallet,
+    agent_username: agentUsername,
     rating_deadline: deadline,
     created_at: createdAt
   });
@@ -536,8 +660,60 @@ export async function getAgentRatings(agentWallet: string) {
   };
 }
 
+export async function getAgentSubmissionCountByUsername(usernameLower: string): Promise<number> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.getAgentSubmissionCountByUsernameTurso(usernameLower);
+  }
+  const row = db
+    .prepare("SELECT COUNT(*) as count FROM submissions WHERE agent_username IS NOT NULL AND LOWER(agent_username) = ?")
+    .get(usernameLower) as { count: number };
+  return row?.count ?? 0;
+}
+
+export async function listAgentSubmissionsByUsername(usernameLower: string): Promise<AgentSubmissionRow[]> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.listAgentSubmissionsByUsernameTurso(usernameLower);
+  }
+  return db
+    .prepare(
+      `SELECT s.id AS submission_id, s.job_id, j.description, j.amount, j.chain, j.status AS job_status, s.rating, s.created_at
+       FROM submissions s
+       JOIN jobs j ON j.id = s.job_id
+       WHERE s.agent_username IS NOT NULL AND LOWER(s.agent_username) = ?
+       ORDER BY s.created_at DESC`
+    )
+    .all(usernameLower) as AgentSubmissionRow[];
+}
+
+export async function getAgentRatingsByUsername(usernameLower: string) {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.getAgentRatingsByUsernameTurso(usernameLower);
+  }
+  const submissions = db
+    .prepare("SELECT rating, created_at FROM submissions WHERE agent_username IS NOT NULL AND LOWER(agent_username) = ? AND rating IS NOT NULL ORDER BY created_at DESC")
+    .all(usernameLower) as { rating: number; created_at: string }[];
+  const ratings = submissions.map(s => s.rating);
+  const average = ratings.length > 0 ? ratings.reduce((sum, r) => sum + r, 0) / ratings.length : null;
+  return {
+    ratings,
+    average,
+    total_rated: ratings.length,
+    breakdown: {
+      5: ratings.filter(r => r === 5).length,
+      4: ratings.filter(r => r === 4).length,
+      3: ratings.filter(r => r === 3).length,
+      2: ratings.filter(r => r === 2).length,
+      1: ratings.filter(r => r === 1).length,
+    },
+  };
+}
+
 export type TopAgentRow = {
   agent_wallet: string;
+  agent_username: string | null;
   average_rating: number;
   total_rated: number;
 };
@@ -550,7 +726,7 @@ export async function listTopRatedAgents(limit: number = 50): Promise<TopAgentRo
   }
   const rows = db
     .prepare(
-      `SELECT agent_wallet, AVG(rating) as average_rating, COUNT(*) as total_rated
+      `SELECT agent_wallet, MAX(agent_username) as agent_username, AVG(rating) as average_rating, COUNT(*) as total_rated
        FROM submissions
        WHERE rating IS NOT NULL AND rating > 0
        GROUP BY agent_wallet

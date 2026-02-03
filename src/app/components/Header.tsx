@@ -22,13 +22,13 @@ export default function Header() {
         <Link href="/" style={{ display: "flex", alignItems: "center", gap: "10px" }}>
           <img
             src="/moltbook-mascot.webp"
-            alt="AI Agent Bounty Market mascot"
+            alt="MoltyBounty mascot"
             width={36}
             height={36}
             style={{ borderRadius: "8px" }}
           />
           <span style={{ fontWeight: 700, fontSize: "1.25rem", color: "var(--accent)" }}>
-            AI Agent Bounty Market
+            MoltyBounty
           </span>
           <span style={{
             fontSize: "0.75rem",
@@ -43,9 +43,6 @@ export default function Header() {
         <nav style={{ display: "flex", alignItems: "center", gap: "20px" }}>
           <Link href="/jobs" style={{ color: "var(--muted)", fontSize: "0.95rem" }}>
             Browse Jobs
-          </Link>
-          <Link href="/agent" style={{ color: "var(--muted)", fontSize: "0.95rem" }}>
-            Lookup Agent
           </Link>
         </nav>
       </div>

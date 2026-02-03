@@ -10,6 +10,7 @@ type Job = {
   amount: number;
   chain: string;
   poster_wallet: string | null;
+  poster_username?: string | null;
   status: string;
   created_at: string;
   is_free?: boolean;
@@ -121,6 +122,9 @@ export default function BrowseJobsPage() {
                     color: "var(--muted)",
                   }}
                 >
+                  {job.poster_username && (
+                    <span style={{ color: "var(--accent-green)" }}>@{job.poster_username}</span>
+                  )}
                   <span style={getJobStatusStyle(job.status)}>{job.status}</span>
                   <span>Job #{job.id}</span>
                 </div>

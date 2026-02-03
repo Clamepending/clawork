@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { createJob, listJobs } from "@/lib/db";
+import { createJob, listJobs, getAgentByUsername, getLinkedWallet } from "@/lib/db";
+import { verifyPrivateKey } from "@/lib/agent-auth";
 
 function badRequest(message: string) {
   return NextResponse.json({ error: message }, { status: 400 });
@@ -10,17 +11,16 @@ export async function GET(request: Request) {
   const status = searchParams.get("status") || undefined;
   const jobs = await listJobs(status || undefined);
 
-  // Return jobs without master_wallet (agents don't need it in listings)
-  // Only include poster_wallet, id, description, amount, chain, status, created_at
   const publicJobs = jobs.map((job: any) => ({
     id: job.id,
     description: job.description,
     amount: job.amount,
     chain: job.chain,
     poster_wallet: job.poster_wallet,
+    poster_username: job.poster_username ?? null,
     status: job.status,
     created_at: job.created_at,
-    is_free: job.amount === 0
+    is_free: job.amount === 0,
   }));
 
   return NextResponse.json({ jobs: publicJobs });
@@ -37,6 +37,10 @@ export async function POST(request: Request) {
   const chain = typeof payload.chain === "string" ? payload.chain.trim().toLowerCase() : "";
   const posterWallet =
     typeof payload.posterWallet === "string" ? payload.posterWallet.trim() : null;
+  const posterUsername =
+    typeof payload.posterUsername === "string" ? payload.posterUsername.trim() : null;
+  const posterPrivateKey =
+    typeof payload.posterPrivateKey === "string" ? payload.posterPrivateKey.trim() : null;
   const transactionHash =
     typeof payload.transactionHash === "string" ? payload.transactionHash.trim() : null;
 
@@ -51,8 +55,34 @@ export async function POST(request: Request) {
   }
 
   const isFreeTask = amount === 0;
-  if (!isFreeTask && !posterWallet) {
-    return badRequest("Poster wallet is required for paid jobs. Send (amount + 0.001) SOL to job_wallet and include your wallet address. For free tasks (amount 0), omit posterWallet.");
+  let resolvedPosterWallet: string | null = posterWallet;
+  let resolvedPosterUsername: string | null = null;
+
+  if (posterUsername && posterPrivateKey) {
+    const usernameLower = posterUsername.toLowerCase();
+    const agent = await getAgentByUsername(usernameLower);
+    if (!agent) {
+      return NextResponse.json({ error: "Account not found." }, { status: 404 });
+    }
+    if (!verifyPrivateKey(posterPrivateKey, agent.private_key_hash)) {
+      return NextResponse.json({ error: "Invalid username or private key." }, { status: 401 });
+    }
+    resolvedPosterUsername = agent.username_display;
+    if (!isFreeTask) {
+      const linked = await getLinkedWallet(agent.id, chain);
+      if (!linked) {
+        return badRequest(
+          "Link a wallet to your account first (POST /api/account/link-wallet) for paid jobs."
+        );
+      }
+      resolvedPosterWallet = linked.wallet_address;
+    }
+  } else {
+    if (!isFreeTask && !posterWallet) {
+      return badRequest(
+        "For paid jobs use posterUsername + posterPrivateKey (and link a wallet), or provide posterWallet. For free tasks (amount 0), use posterUsername + posterPrivateKey or omit posterWallet."
+      );
+    }
   }
 
   const masterWallet = process.env.MASTER_WALLET_ADDRESS;
@@ -72,10 +102,11 @@ export async function POST(request: Request) {
     description,
     amount,
     chain,
-    posterWallet: posterWallet ?? null,
+    posterWallet: resolvedPosterWallet ?? null,
+    posterUsername: resolvedPosterUsername ?? undefined,
     masterWallet: masterWallet ?? "",
     jobWallet,
-    transactionHash: isFreeTask ? null : transactionHash
+    transactionHash: isFreeTask ? null : transactionHash,
   });
 
   const message = isFreeTask
@@ -89,12 +120,13 @@ export async function POST(request: Request) {
       description,
       amount,
       chain,
-      poster_wallet: posterWallet ?? null,
+      poster_wallet: resolvedPosterWallet ?? null,
+      poster_username: resolvedPosterUsername ?? null,
       job_wallet: jobWallet,
       status: "open",
       created_at: job.created_at,
-      is_free: isFreeTask
+      is_free: isFreeTask,
     },
-    message
+    message,
   });
 }

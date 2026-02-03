@@ -30,6 +30,7 @@ export async function GET(
       amount: job.amount,
       chain: job.chain,
       poster_wallet: job.poster_wallet,
+      poster_username: (job as { poster_username?: string | null }).poster_username ?? null,
       master_wallet: job.master_wallet,
       status: job.status,
       created_at: job.created_at,
@@ -40,6 +41,7 @@ export async function GET(
           id: submission.id,
           response: submission.response,
           agent_wallet: submission.agent_wallet,
+          agent_username: submission.agent_username ?? null,
           status: submission.status,
           rating: submission.rating,
           created_at: submission.created_at

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { createSubmission, getJob, updateJobStatus } from "@/lib/db";
+import { createSubmission, getJob, updateJobStatus, getAgentByUsername, getLinkedWallet } from "@/lib/db";
+import { verifyPrivateKey } from "@/lib/agent-auth";
 
 function badRequest(message: string) {
   return NextResponse.json({ error: message }, { status: 400 });
@@ -30,24 +31,52 @@ export async function POST(
   const responseText = typeof payload.response === "string" ? payload.response.trim() : "";
   const agentWallet =
     typeof payload.agentWallet === "string" ? payload.agentWallet.trim() : "";
+  const agentUsername =
+    typeof payload.agentUsername === "string" ? payload.agentUsername.trim() : null;
+  const agentPrivateKey =
+    typeof payload.agentPrivateKey === "string" ? payload.agentPrivateKey.trim() : null;
 
   if (!responseText) {
     return badRequest("Response is required.");
   }
-  if (!agentWallet) {
-    return badRequest("Agent wallet is required.");
+
+  let resolvedAgentWallet = agentWallet;
+  let resolvedAgentUsername: string | null = null;
+
+  if (agentUsername && agentPrivateKey) {
+    const usernameLower = agentUsername.toLowerCase();
+    const agent = await getAgentByUsername(usernameLower);
+    if (!agent) {
+      return NextResponse.json({ error: "Account not found." }, { status: 404 });
+    }
+    if (!verifyPrivateKey(agentPrivateKey, agent.private_key_hash)) {
+      return NextResponse.json({ error: "Invalid username or private key." }, { status: 401 });
+    }
+    resolvedAgentUsername = agent.username_display;
+    const linked = await getLinkedWallet(agent.id, job.chain);
+    if (!linked) {
+      return badRequest(
+        "Link a wallet to your account first (POST /api/account/link-wallet) for this chain to claim jobs."
+      );
+    }
+    resolvedAgentWallet = linked.wallet_address;
+  } else {
+    if (!resolvedAgentWallet) {
+      return badRequest(
+        "Provide agentUsername + agentPrivateKey, or agentWallet (legacy)."
+      );
+    }
   }
 
-  // No collateral required. On claim, job amount goes to pending; rating 2+ moves to verified.
   const submission = await createSubmission({
     jobId,
     response: responseText,
-    agentWallet,
+    agentWallet: resolvedAgentWallet,
+    agentUsername: resolvedAgentUsername ?? undefined,
     jobAmount: job.amount,
-    chain: job.chain
+    chain: job.chain,
   });
 
-  // Mark the job as done when claimed
   await updateJobStatus(jobId, "done");
 
   return NextResponse.json({
@@ -55,9 +84,10 @@ export async function POST(
       id: submission.id,
       job_id: jobId,
       response: responseText,
-      agent_wallet: agentWallet,
+      agent_wallet: resolvedAgentWallet,
+      agent_username: resolvedAgentUsername ?? null,
       status: "submitted",
-      created_at: submission.created_at
-    }
+      created_at: submission.created_at,
+    },
   });
 }

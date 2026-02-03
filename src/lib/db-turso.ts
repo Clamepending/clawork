@@ -99,6 +99,26 @@ export async function initTursoSchema() {
     );
 
     CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_private_id ON jobs(private_id);
+
+    CREATE TABLE IF NOT EXISTS agents (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username_lower TEXT NOT NULL UNIQUE,
+      username_display TEXT NOT NULL,
+      private_key_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_agents_username_lower ON agents(username_lower);
+
+    CREATE TABLE IF NOT EXISTS agent_wallets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      agent_id INTEGER NOT NULL,
+      wallet_address TEXT NOT NULL,
+      chain TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(wallet_address, chain),
+      FOREIGN KEY (agent_id) REFERENCES agents(id)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_wallets_wallet_chain ON agent_wallets(wallet_address, chain);
   `;
 
   // Execute schema creation (split by semicolon for better error handling)
@@ -115,6 +135,21 @@ export async function initTursoSchema() {
       }
     }
   }
+
+  // Migrations: add poster_username to jobs, agent_username to submissions, description to agents
+  for (const sql of [
+    "ALTER TABLE jobs ADD COLUMN poster_username TEXT",
+    "ALTER TABLE submissions ADD COLUMN agent_username TEXT",
+    "ALTER TABLE agents ADD COLUMN description TEXT",
+  ]) {
+    try {
+      await client.execute(sql);
+    } catch (error: any) {
+      if (!error.message?.includes("duplicate column")) {
+        console.error("Migration error:", error.message);
+      }
+    }
+  }
 }
 
 // Generate secure private ID
@@ -123,12 +158,111 @@ function generatePrivateId(): string {
   return bytes.toString("base64url");
 }
 
+// --- Agents (MoltyBounty ID) ---
+export type AgentRecord = {
+  id: number;
+  username_lower: string;
+  username_display: string;
+  private_key_hash: string;
+  description: string | null;
+  created_at: string;
+};
+
+export async function createAgentTurso(params: {
+  usernameLower: string;
+  usernameDisplay: string;
+  privateKeyHash: string;
+  description?: string | null;
+}) {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  const createdAt = new Date().toISOString();
+  const description = params.description ?? null;
+  const result = await client.execute({
+    sql: `INSERT INTO agents (username_lower, username_display, private_key_hash, description, created_at)
+          VALUES (?, ?, ?, ?, ?)`,
+    args: [params.usernameLower, params.usernameDisplay, params.privateKeyHash, description, createdAt],
+  });
+  return {
+    id: Number(result.lastInsertRowid),
+    username_lower: params.usernameLower,
+    username_display: params.usernameDisplay,
+    created_at: createdAt,
+  };
+}
+
+export async function getAgentByUsernameTurso(usernameLower: string): Promise<AgentRecord | undefined> {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  const result = await client.execute({
+    sql: "SELECT * FROM agents WHERE username_lower = ?",
+    args: [usernameLower],
+  });
+  return rowToObject(result.rows[0]) as AgentRecord | undefined;
+}
+
+export async function getAgentByIdTurso(agentId: number): Promise<AgentRecord | undefined> {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  const result = await client.execute({
+    sql: "SELECT * FROM agents WHERE id = ?",
+    args: [agentId],
+  });
+  return rowToObject(result.rows[0]) as AgentRecord | undefined;
+}
+
+export async function linkWalletTurso(params: {
+  agentId: number;
+  walletAddress: string;
+  chain: string;
+}) {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  const chain = params.chain.trim().toLowerCase();
+  const wallet = params.walletAddress.trim();
+  // Remove any existing link for this agent+chain so we can replace with new wallet
+  await client.execute({
+    sql: "DELETE FROM agent_wallets WHERE agent_id = ? AND chain = ?",
+    args: [params.agentId, chain],
+  });
+  const createdAt = new Date().toISOString();
+  await client.execute({
+    sql: `INSERT INTO agent_wallets (agent_id, wallet_address, chain, created_at)
+          VALUES (?, ?, ?, ?)`,
+    args: [params.agentId, wallet, chain, createdAt],
+  });
+}
+
+export async function getLinkedWalletTurso(agentId: number, chain: string): Promise<{ wallet_address: string } | undefined> {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  const result = await client.execute({
+    sql: "SELECT wallet_address FROM agent_wallets WHERE agent_id = ? AND chain = ?",
+    args: [agentId, chain.trim().toLowerCase()],
+  });
+  const row = rowToObject(result.rows[0]);
+  return row ? { wallet_address: (row as { wallet_address: string }).wallet_address } : undefined;
+}
+
+export async function getAgentByWalletTurso(walletAddress: string, chain: string): Promise<AgentRecord | undefined> {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  const result = await client.execute({
+    sql: `SELECT a.* FROM agents a
+          JOIN agent_wallets w ON w.agent_id = a.id
+          WHERE w.wallet_address = ? AND w.chain = ?`,
+    args: [walletAddress.trim(), chain.trim().toLowerCase()],
+  });
+  return rowToObject(result.rows[0]) as AgentRecord | undefined;
+}
+
 // Database operations using Turso HTTP API
 export async function createJobTurso(params: {
   description: string;
   amount: number;
   chain: string;
   posterWallet: string | null;
+  posterUsername?: string | null;
   masterWallet: string;
   jobWallet: string;
   transactionHash?: string | null;
@@ -142,16 +276,17 @@ export async function createJobTurso(params: {
   const totalPaid = params.amount + collateralAmount;
   const createdAt = new Date().toISOString();
 
-  // Insert job
+  const posterUsername = params.posterUsername ?? null;
   const jobResult = await client.execute({
-    sql: `INSERT INTO jobs (private_id, description, amount, chain, poster_wallet, master_wallet, job_wallet, status, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?)`,
+    sql: `INSERT INTO jobs (private_id, description, amount, chain, poster_wallet, poster_username, master_wallet, job_wallet, status, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`,
     args: [
       privateId,
       params.description,
       params.amount,
       params.chain,
       params.posterWallet,
+      posterUsername,
       params.masterWallet,
       params.jobWallet,
       createdAt
@@ -232,6 +367,7 @@ export async function createSubmissionTurso(params: {
   jobId: number;
   response: string;
   agentWallet: string;
+  agentUsername?: string | null;
   jobAmount: number;
   chain: string;
 }) {
@@ -240,14 +376,16 @@ export async function createSubmissionTurso(params: {
 
   const createdAt = new Date().toISOString();
   const deadline = new Date(new Date(createdAt).getTime() + 24 * 60 * 60 * 1000).toISOString();
+  const agentUsername = params.agentUsername ?? null;
 
   const result = await client.execute({
-    sql: `INSERT INTO submissions (job_id, response, agent_wallet, status, rating_deadline, created_at)
-          VALUES (?, ?, ?, 'submitted', ?, ?)`,
+    sql: `INSERT INTO submissions (job_id, response, agent_wallet, agent_username, status, rating_deadline, created_at)
+          VALUES (?, ?, ?, ?, 'submitted', ?, ?)`,
     args: [
       params.jobId,
       params.response,
       params.agentWallet,
+      agentUsername,
       deadline,
       createdAt
     ],
@@ -420,8 +558,67 @@ export async function getAgentRatingsTurso(agentWallet: string) {
   };
 }
 
+export async function getAgentSubmissionCountByUsernameTurso(usernameLower: string): Promise<number> {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  const result = await client.execute({
+    sql: "SELECT COUNT(*) as count FROM submissions WHERE agent_username IS NOT NULL AND LOWER(agent_username) = ?",
+    args: [usernameLower],
+  });
+  const row = result.rows[0] as { count?: number } | undefined;
+  return row?.count ?? 0;
+}
+
+export async function listAgentSubmissionsByUsernameTurso(usernameLower: string) {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  const result = await client.execute({
+    sql: `SELECT s.id AS submission_id, s.job_id, j.description, j.amount, j.chain, j.status AS job_status, s.rating, s.created_at
+          FROM submissions s
+          JOIN jobs j ON j.id = s.job_id
+          WHERE s.agent_username IS NOT NULL AND LOWER(s.agent_username) = ?
+          ORDER BY s.created_at DESC`,
+    args: [usernameLower],
+  });
+  return rowsToObjects(result.rows) as Array<{
+    submission_id: number;
+    job_id: number;
+    description: string;
+    amount: number;
+    chain: string;
+    job_status: string;
+    rating: number | null;
+    created_at: string;
+  }>;
+}
+
+export async function getAgentRatingsByUsernameTurso(usernameLower: string) {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  const result = await client.execute({
+    sql: "SELECT rating, created_at FROM submissions WHERE agent_username IS NOT NULL AND LOWER(agent_username) = ? AND rating IS NOT NULL ORDER BY created_at DESC",
+    args: [usernameLower],
+  });
+  const submissions = rowsToObjects(result.rows) as { rating: number; created_at: string }[];
+  const ratings = submissions.map(s => s.rating);
+  const average = ratings.length > 0 ? ratings.reduce((sum, r) => sum + r, 0) / ratings.length : null;
+  return {
+    ratings,
+    average,
+    total_rated: ratings.length,
+    breakdown: {
+      5: ratings.filter(r => r === 5).length,
+      4: ratings.filter(r => r === 4).length,
+      3: ratings.filter(r => r === 3).length,
+      2: ratings.filter(r => r === 2).length,
+      1: ratings.filter(r => r === 1).length,
+    },
+  };
+}
+
 export type TopAgentRow = {
   agent_wallet: string;
+  agent_username: string | null;
   average_rating: number;
   total_rated: number;
 };
@@ -431,7 +628,7 @@ export async function listTopRatedAgentsTurso(limit: number = 50) {
   if (!client) throw new Error("Turso client not initialized");
 
   const result = await client.execute({
-    sql: `SELECT agent_wallet, AVG(rating) as average_rating, COUNT(*) as total_rated
+    sql: `SELECT agent_wallet, MAX(agent_username) as agent_username, AVG(rating) as average_rating, COUNT(*) as total_rated
           FROM submissions
           WHERE rating IS NOT NULL AND rating > 0
           GROUP BY agent_wallet
