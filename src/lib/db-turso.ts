@@ -166,6 +166,9 @@ export async function initTursoSchema() {
     "ALTER TABLE jobs ADD COLUMN poster_username TEXT",
     "ALTER TABLE submissions ADD COLUMN agent_username TEXT",
     "ALTER TABLE agents ADD COLUMN description TEXT",
+    "ALTER TABLE jobs ADD COLUMN bounty_type TEXT NOT NULL DEFAULT 'agent'",
+    "ALTER TABLE submissions ADD COLUMN human_id INTEGER",
+    "ALTER TABLE submissions ADD COLUMN human_display_name TEXT",
   ]) {
     try {
       await client.execute(sql);
@@ -174,6 +177,38 @@ export async function initTursoSchema() {
         console.error("Migration error:", error.message);
       }
     }
+  }
+
+  // Humans and human_wallets
+  try {
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS humans (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT NOT NULL UNIQUE,
+        display_name TEXT,
+        bio TEXT,
+        created_at TEXT NOT NULL
+      )
+    `);
+    await client.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_humans_email ON humans(email)");
+  } catch (e: any) {
+    if (!e.message?.includes("already exists")) console.error(e.message);
+  }
+  try {
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS human_wallets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        human_id INTEGER NOT NULL,
+        wallet_address TEXT NOT NULL,
+        chain TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE(human_id, chain),
+        FOREIGN KEY (human_id) REFERENCES humans(id)
+      )
+    `);
+    await client.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_human_wallets_human_chain ON human_wallets(human_id, chain)");
+  } catch (e: any) {
+    if (!e.message?.includes("already exists")) console.error(e.message);
   }
 }
 
@@ -281,6 +316,92 @@ export async function getAgentByWalletTurso(walletAddress: string, chain: string
   return rowToObject(result.rows[0]) as AgentRecord | undefined;
 }
 
+// --- Humans (Gmail sign-in, bio, linked wallets) ---
+export type HumanRecord = {
+  id: number;
+  email: string;
+  display_name: string | null;
+  bio: string | null;
+  created_at: string;
+};
+
+export async function createHumanTurso(params: { email: string; displayName?: string | null }): Promise<HumanRecord> {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  const createdAt = new Date().toISOString();
+  const displayName = params.displayName ?? null;
+  const result = await client.execute({
+    sql: "INSERT INTO humans (email, display_name, bio, created_at) VALUES (?, ?, NULL, ?)",
+    args: [params.email.trim().toLowerCase(), displayName, createdAt],
+  });
+  return {
+    id: Number(result.lastInsertRowid),
+    email: params.email.trim().toLowerCase(),
+    display_name: displayName,
+    bio: null,
+    created_at: createdAt,
+  };
+}
+
+export async function getHumanByEmailTurso(email: string): Promise<HumanRecord | undefined> {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  const result = await client.execute({
+    sql: "SELECT * FROM humans WHERE email = ?",
+    args: [email.trim().toLowerCase()],
+  });
+  return rowToObject(result.rows[0]) as HumanRecord | undefined;
+}
+
+export async function getHumanByIdTurso(id: number): Promise<HumanRecord | undefined> {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  const result = await client.execute({
+    sql: "SELECT * FROM humans WHERE id = ?",
+    args: [id],
+  });
+  return rowToObject(result.rows[0]) as HumanRecord | undefined;
+}
+
+export async function updateHumanTurso(params: { id: number; displayName?: string | null; bio?: string | null }): Promise<void> {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  const human = await getHumanByIdTurso(params.id);
+  if (!human) return;
+  const displayName = params.displayName !== undefined ? params.displayName : human.display_name;
+  const bio = params.bio !== undefined ? (params.bio && params.bio.length > 200 ? params.bio.slice(0, 200) : params.bio) : human.bio;
+  await client.execute({
+    sql: "UPDATE humans SET display_name = ?, bio = ? WHERE id = ?",
+    args: [displayName, bio, params.id],
+  });
+}
+
+export async function linkHumanWalletTurso(params: { humanId: number; walletAddress: string; chain: string }): Promise<void> {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  const chain = params.chain.trim().toLowerCase();
+  const wallet = params.walletAddress.trim();
+  await client.execute({
+    sql: "DELETE FROM human_wallets WHERE human_id = ? AND chain = ?",
+    args: [params.humanId, chain],
+  });
+  const createdAt = new Date().toISOString();
+  await client.execute({
+    sql: "INSERT INTO human_wallets (human_id, wallet_address, chain, created_at) VALUES (?, ?, ?, ?)",
+    args: [params.humanId, wallet, chain, createdAt],
+  });
+}
+
+export async function getLinkedHumanWalletTurso(humanId: number, chain: string): Promise<{ wallet_address: string } | undefined> {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  const result = await client.execute({
+    sql: "SELECT wallet_address FROM human_wallets WHERE human_id = ? AND chain = ?",
+    args: [humanId, chain.trim().toLowerCase()],
+  });
+  return rowToObject(result.rows[0]) as { wallet_address: string } | undefined;
+}
+
 export async function getAgentBalancesTurso(agentId: number, chain: string): Promise<{ balance: number; pending_balance: number; verified_balance: number }> {
   const client = getTursoClient();
   if (!client) throw new Error("Turso client not initialized");
@@ -386,6 +507,7 @@ export async function createJobTurso(params: {
   chain: string;
   posterWallet: string | null;
   posterUsername?: string | null;
+  bountyType?: "agent" | "human";
   masterWallet: string;
   jobWallet: string;
   transactionHash?: string | null;
@@ -398,11 +520,12 @@ export async function createJobTurso(params: {
   const collateralAmount = 0.001;
   const totalPaid = params.amount + collateralAmount;
   const createdAt = new Date().toISOString();
-
+  const bountyType = params.bountyType ?? "agent";
   const posterUsername = params.posterUsername ?? null;
+
   const jobResult = await client.execute({
-    sql: `INSERT INTO jobs (private_id, description, amount, chain, poster_wallet, poster_username, master_wallet, job_wallet, status, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`,
+    sql: `INSERT INTO jobs (private_id, description, amount, chain, poster_wallet, poster_username, bounty_type, master_wallet, job_wallet, status, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`,
     args: [
       privateId,
       params.description,
@@ -410,6 +533,7 @@ export async function createJobTurso(params: {
       params.chain,
       params.posterWallet,
       posterUsername,
+      bountyType,
       params.masterWallet,
       params.jobWallet,
       createdAt
@@ -449,6 +573,7 @@ export async function createPaidJobFromBalanceTurso(params: {
   chain: string;
   posterAgentId: number;
   posterUsername?: string | null;
+  bountyType?: "agent" | "human";
   masterWallet: string;
   jobWallet: string;
 }): Promise<{ id: number; private_id: string; created_at: string } | { success: false; error: string }> {
@@ -471,13 +596,14 @@ export async function createPaidJobFromBalanceTurso(params: {
   const privateId = generatePrivateId();
   const totalPaid = totalRequired;
   const posterUsername = params.posterUsername ?? null;
+  const bountyType = params.bountyType ?? "agent";
   const createdAt = new Date().toISOString();
   const posterWalletPlaceholder = `moltybounty:${params.posterAgentId}`;
 
   try {
     const jobResult = await client.execute({
-      sql: `INSERT INTO jobs (private_id, description, amount, chain, poster_wallet, poster_username, master_wallet, job_wallet, status, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`,
+      sql: `INSERT INTO jobs (private_id, description, amount, chain, poster_wallet, poster_username, bounty_type, master_wallet, job_wallet, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`,
       args: [
         privateId,
         params.description,
@@ -485,6 +611,7 @@ export async function createPaidJobFromBalanceTurso(params: {
         params.chain,
         posterWalletPlaceholder,
         posterUsername,
+        bountyType,
         params.masterWallet,
         params.jobWallet,
         createdAt,
@@ -517,6 +644,7 @@ export async function createPaidJobFromWalletTurso(params: {
   amount: number;
   chain: string;
   posterWallet: string;
+  bountyType?: "agent" | "human";
   masterWallet: string;
   jobWallet: string;
   transactionHash?: string | null;
@@ -527,6 +655,7 @@ export async function createPaidJobFromWalletTurso(params: {
   const collateralAmount = params.collateralAmount ?? 0.001;
   const totalRequired = params.amount + collateralAmount;
   const txVerified = !!params.transactionHash;
+  const bountyType = params.bountyType ?? "human";
   const deposit = txVerified ? null : await getDepositTurso(params.posterWallet, params.chain);
   const verifiedBalance = (deposit as { verified_balance?: number } | undefined)?.verified_balance ?? 0;
   const hasSufficient = !txVerified && verifiedBalance >= totalRequired;
@@ -557,8 +686,8 @@ export async function createPaidJobFromWalletTurso(params: {
   const createdAt = new Date().toISOString();
   try {
     const jobResult = await client.execute({
-      sql: `INSERT INTO jobs (private_id, description, amount, chain, poster_wallet, poster_username, master_wallet, job_wallet, status, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`,
+      sql: `INSERT INTO jobs (private_id, description, amount, chain, poster_wallet, poster_username, bounty_type, master_wallet, job_wallet, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`,
       args: [
         privateId,
         params.description,
@@ -566,6 +695,7 @@ export async function createPaidJobFromWalletTurso(params: {
         params.chain,
         params.posterWallet,
         "human",
+        bountyType,
         params.masterWallet,
         params.jobWallet,
         createdAt,
@@ -601,15 +731,25 @@ export async function createPaidJobFromWalletTurso(params: {
   }
 }
 
-export async function listJobsTurso(status?: string) {
+export async function listJobsTurso(status?: string, bountyType?: "agent" | "human") {
   const client = getTursoClient();
   if (!client) throw new Error("Turso client not initialized");
 
   let result;
-  if (status) {
+  if (status && bountyType) {
+    result = await client.execute({
+      sql: "SELECT * FROM jobs WHERE status = ? AND bounty_type = ? ORDER BY created_at DESC",
+      args: [status, bountyType],
+    });
+  } else if (status) {
     result = await client.execute({
       sql: "SELECT * FROM jobs WHERE status = ? ORDER BY created_at DESC",
       args: [status],
+    });
+  } else if (bountyType) {
+    result = await client.execute({
+      sql: "SELECT * FROM jobs WHERE bounty_type = ? ORDER BY created_at DESC",
+      args: [bountyType],
     });
   } else {
     result = await client.execute({
@@ -703,6 +843,8 @@ export async function createSubmissionTurso(params: {
   agentWallet: string;
   agentUsername?: string | null;
   agentId?: number | null;
+  humanId?: number | null;
+  humanDisplayName?: string | null;
   jobAmount: number;
   chain: string;
 }) {
@@ -713,16 +855,20 @@ export async function createSubmissionTurso(params: {
   const deadline = new Date(new Date(createdAt).getTime() + 24 * 60 * 60 * 1000).toISOString();
   const agentUsername = params.agentUsername ?? null;
   const agentId = params.agentId ?? null;
+  const humanId = params.humanId ?? null;
+  const humanDisplayName = params.humanDisplayName ?? null;
 
   const result = await client.execute({
-    sql: `INSERT INTO submissions (job_id, response, agent_wallet, agent_username, agent_id, status, rating_deadline, created_at)
-          VALUES (?, ?, ?, ?, ?, 'submitted', ?, ?)`,
+    sql: `INSERT INTO submissions (job_id, response, agent_wallet, agent_username, agent_id, human_id, human_display_name, status, rating_deadline, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 'submitted', ?, ?)`,
     args: [
       params.jobId,
       params.response,
       params.agentWallet,
       agentUsername,
       agentId ?? null,
+      humanId,
+      humanDisplayName,
       deadline,
       createdAt
     ],

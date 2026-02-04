@@ -183,6 +183,46 @@ if (db) {
     if (!error.message?.includes("duplicate column")) throw error;
   }
 
+  // bounty_type: 'agent' | 'human' (default agent)
+  try {
+    db!.exec(`ALTER TABLE jobs ADD COLUMN bounty_type TEXT NOT NULL DEFAULT 'agent'`);
+  } catch (error: any) {
+    if (!error.message?.includes("duplicate column")) throw error;
+  }
+
+  // Humans (Gmail sign-in) and human_wallets
+  db!.exec(`
+  CREATE TABLE IF NOT EXISTS humans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL UNIQUE,
+    display_name TEXT,
+    bio TEXT,
+    created_at TEXT NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_humans_email ON humans(email);
+  CREATE TABLE IF NOT EXISTS human_wallets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    human_id INTEGER NOT NULL,
+    wallet_address TEXT NOT NULL,
+    chain TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(human_id, chain),
+    FOREIGN KEY (human_id) REFERENCES humans(id)
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_human_wallets_human_chain ON human_wallets(human_id, chain);
+  `);
+
+  try {
+    db!.exec(`ALTER TABLE submissions ADD COLUMN human_id INTEGER`);
+  } catch (error: any) {
+    if (!error.message?.includes("duplicate column")) throw error;
+  }
+  try {
+    db!.exec(`ALTER TABLE submissions ADD COLUMN human_display_name TEXT`);
+  } catch (error: any) {
+    if (!error.message?.includes("duplicate column")) throw error;
+  }
+
   // Add rating_deadline column to submissions table if it doesn't exist (migration)
   try {
     db!.exec(`ALTER TABLE submissions ADD COLUMN rating_deadline TEXT`);
@@ -238,6 +278,7 @@ export type JobRecord = {
   chain: string;
   poster_wallet: string | null;
   poster_username?: string | null;
+  bounty_type: "agent" | "human";
   master_wallet: string;
   job_wallet: string;
   status: string;
@@ -250,6 +291,9 @@ export type SubmissionRecord = {
   response: string;
   agent_wallet: string;
   agent_username?: string | null;
+  agent_id?: number | null;
+  human_id?: number | null;
+  human_display_name?: string | null;
   status: string;
   rating: number | null;
   rating_deadline: string;
@@ -369,6 +413,87 @@ export async function getAgentByWallet(walletAddress: string, chain: string): Pr
     .get(walletAddress.trim(), chain.trim().toLowerCase()) as AgentRecord | undefined;
 }
 
+// --- Humans (Gmail sign-in, bio, linked wallets) ---
+export type HumanRecord = {
+  id: number;
+  email: string;
+  display_name: string | null;
+  bio: string | null;
+  created_at: string;
+};
+
+export async function createHuman(params: { email: string; displayName?: string | null }): Promise<HumanRecord> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.createHumanTurso(params);
+  }
+  const createdAt = new Date().toISOString();
+  const displayName = params.displayName ?? null;
+  const info = db!.prepare(
+    `INSERT INTO humans (email, display_name, bio, created_at) VALUES (?, ?, NULL, ?)`
+  ).run(params.email.trim().toLowerCase(), displayName, createdAt);
+  return {
+    id: Number(info.lastInsertRowid),
+    email: params.email.trim().toLowerCase(),
+    display_name: displayName,
+    bio: null,
+    created_at: createdAt,
+  };
+}
+
+export async function getHumanByEmail(email: string): Promise<HumanRecord | undefined> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.getHumanByEmailTurso(email);
+  }
+  return db!.prepare("SELECT * FROM humans WHERE email = ?").get(email.trim().toLowerCase()) as HumanRecord | undefined;
+}
+
+export async function getHumanById(id: number): Promise<HumanRecord | undefined> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.getHumanByIdTurso(id);
+  }
+  return db!.prepare("SELECT * FROM humans WHERE id = ?").get(id) as HumanRecord | undefined;
+}
+
+export async function updateHuman(params: { id: number; displayName?: string | null; bio?: string | null }): Promise<void> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.updateHumanTurso(params);
+  }
+  const human = await getHumanById(params.id);
+  if (!human) return;
+  const displayName = params.displayName !== undefined ? params.displayName : human.display_name;
+  const bio = params.bio !== undefined ? (params.bio && params.bio.length > 200 ? params.bio.slice(0, 200) : params.bio) : human.bio;
+  db!.prepare("UPDATE humans SET display_name = ?, bio = ? WHERE id = ?").run(displayName, bio, params.id);
+}
+
+export async function linkHumanWallet(params: { humanId: number; walletAddress: string; chain: string }): Promise<void> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.linkHumanWalletTurso(params);
+  }
+  const chain = params.chain.trim().toLowerCase();
+  const wallet = params.walletAddress.trim();
+  db!.prepare("DELETE FROM human_wallets WHERE human_id = ? AND chain = ?").run(params.humanId, chain);
+  const createdAt = new Date().toISOString();
+  db!.prepare(
+    `INSERT INTO human_wallets (human_id, wallet_address, chain, created_at) VALUES (?, ?, ?, ?)`
+  ).run(params.humanId, wallet, chain, createdAt);
+}
+
+export async function getLinkedHumanWallet(humanId: number, chain: string): Promise<{ wallet_address: string } | undefined> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.getLinkedHumanWalletTurso(humanId, chain);
+  }
+  const row = db!
+    .prepare("SELECT wallet_address FROM human_wallets WHERE human_id = ? AND chain = ?")
+    .get(humanId, chain.trim().toLowerCase()) as { wallet_address: string } | undefined;
+  return row;
+}
+
 // --- Agent balances (MoltyBounty balance by username; no wallet required) ---
 export type AgentBalances = { balance: number; pending_balance: number; verified_balance: number };
 
@@ -477,6 +602,7 @@ export async function createJob(params: {
   chain: string;
   posterWallet: string | null;
   posterUsername?: string | null;
+  bountyType?: "agent" | "human";
   masterWallet: string;
   jobWallet: string;
   transactionHash?: string | null;
@@ -491,10 +617,11 @@ export async function createJob(params: {
   const collateralAmount = 0.001;
   const totalPaid = params.amount + collateralAmount;
   const posterUsername = params.posterUsername ?? null;
+  const bountyType = params.bountyType ?? "agent";
 
   const jobStmt = db!.prepare(
-    `INSERT INTO jobs (private_id, description, amount, chain, poster_wallet, poster_username, master_wallet, job_wallet, status, created_at)
-     VALUES (@private_id, @description, @amount, @chain, @poster_wallet, @poster_username, @master_wallet, @job_wallet, 'open', @created_at)`
+    `INSERT INTO jobs (private_id, description, amount, chain, poster_wallet, poster_username, bounty_type, master_wallet, job_wallet, status, created_at)
+     VALUES (@private_id, @description, @amount, @chain, @poster_wallet, @poster_username, @bounty_type, @master_wallet, @job_wallet, 'open', @created_at)`
   );
 
   const createdAt = new Date().toISOString();
@@ -505,6 +632,7 @@ export async function createJob(params: {
     chain: params.chain,
     poster_wallet: params.posterWallet,
     poster_username: posterUsername,
+    bounty_type: bountyType,
     master_wallet: params.masterWallet,
     job_wallet: params.jobWallet,
     created_at: createdAt
@@ -543,6 +671,7 @@ export async function createPaidJobFromBalance(params: {
   chain: string;
   posterAgentId: number;
   posterUsername?: string | null;
+  bountyType?: "agent" | "human";
   masterWallet: string;
   jobWallet: string;
 }): Promise<{ id: number; private_id: string; created_at: string } | { success: false; error: string }> {
@@ -567,12 +696,13 @@ export async function createPaidJobFromBalance(params: {
   const privateId = generatePrivateId();
   const totalPaid = totalRequired;
   const posterUsername = params.posterUsername ?? null;
+  const bountyType = params.bountyType ?? "agent";
   const createdAt = new Date().toISOString();
   const posterWalletPlaceholder = `moltybounty:${params.posterAgentId}`;
 
   const jobInfo = db!.prepare(
-    `INSERT INTO jobs (private_id, description, amount, chain, poster_wallet, poster_username, master_wallet, job_wallet, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`
+    `INSERT INTO jobs (private_id, description, amount, chain, poster_wallet, poster_username, bounty_type, master_wallet, job_wallet, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`
   ).run(
     privateId,
     params.description,
@@ -580,6 +710,7 @@ export async function createPaidJobFromBalance(params: {
     params.chain,
     posterWalletPlaceholder,
     posterUsername,
+    bountyType,
     params.masterWallet,
     params.jobWallet,
     createdAt
@@ -599,6 +730,7 @@ export async function createPaidJobFromWallet(params: {
   amount: number;
   chain: string;
   posterWallet: string;
+  bountyType?: "agent" | "human";
   masterWallet: string;
   jobWallet: string;
   transactionHash?: string | null;
@@ -612,6 +744,7 @@ export async function createPaidJobFromWallet(params: {
   const collateralAmount = params.collateralAmount ?? 0.001;
   const totalRequired = params.amount + collateralAmount;
   const txVerified = !!params.transactionHash;
+  const bountyType = params.bountyType ?? "human";
 
   const deposit = txVerified ? null : await getDeposit(params.posterWallet, params.chain);
   const hasSufficient = !txVerified && deposit && deposit.verified_balance >= totalRequired;
@@ -635,8 +768,8 @@ export async function createPaidJobFromWallet(params: {
   const totalPaid = totalRequired;
   const createdAt = new Date().toISOString();
   const jobInfo = db!.prepare(
-    `INSERT INTO jobs (private_id, description, amount, chain, poster_wallet, poster_username, master_wallet, job_wallet, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`
+    `INSERT INTO jobs (private_id, description, amount, chain, poster_wallet, poster_username, bounty_type, master_wallet, job_wallet, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`
   ).run(
     privateId,
     params.description,
@@ -644,6 +777,7 @@ export async function createPaidJobFromWallet(params: {
     params.chain,
     params.posterWallet,
     "human",
+    bountyType,
     params.masterWallet,
     params.jobWallet,
     createdAt
@@ -726,17 +860,27 @@ export async function returnPosterCollateral(jobId: number, chain: string) {
   return true;
 }
 
-export async function listJobs(status?: string) {
+export async function listJobs(status?: string, bountyType?: "agent" | "human") {
   if (usingTurso) {
     await ensureTursoSchema();
     const turso = await getTurso();
-    return turso.listJobsTurso(status);
+    return turso.listJobsTurso(status, bountyType);
   }
 
+  if (status && bountyType) {
+    return db!
+      .prepare("SELECT * FROM jobs WHERE status = ? AND bounty_type = ? ORDER BY created_at DESC")
+      .all(status, bountyType) as JobRecord[];
+  }
   if (status) {
     return db!
       .prepare("SELECT * FROM jobs WHERE status = ? ORDER BY created_at DESC")
       .all(status) as JobRecord[];
+  }
+  if (bountyType) {
+    return db!
+      .prepare("SELECT * FROM jobs WHERE bounty_type = ? ORDER BY created_at DESC")
+      .all(bountyType) as JobRecord[];
   }
 
   return db!
@@ -822,6 +966,8 @@ export async function createSubmission(params: {
   agentWallet: string;
   agentUsername?: string | null;
   agentId?: number | null;
+  humanId?: number | null;
+  humanDisplayName?: string | null;
   jobAmount: number;
   chain: string;
 }) {
@@ -833,10 +979,12 @@ export async function createSubmission(params: {
   const deadline = new Date(new Date(createdAt).getTime() + 24 * 60 * 60 * 1000).toISOString();
   const agentUsername = params.agentUsername ?? null;
   const agentId = params.agentId ?? null;
+  const humanId = params.humanId ?? null;
+  const humanDisplayName = params.humanDisplayName ?? null;
 
   const stmt = db!.prepare(
-    `INSERT INTO submissions (job_id, response, agent_wallet, agent_username, agent_id, status, rating_deadline, created_at)
-     VALUES (@job_id, @response, @agent_wallet, @agent_username, @agent_id, 'submitted', @rating_deadline, @created_at)`
+    `INSERT INTO submissions (job_id, response, agent_wallet, agent_username, agent_id, human_id, human_display_name, status, rating_deadline, created_at)
+     VALUES (@job_id, @response, @agent_wallet, @agent_username, @agent_id, @human_id, @human_display_name, 'submitted', @rating_deadline, @created_at)`
   );
 
   const info = stmt.run({
@@ -845,6 +993,8 @@ export async function createSubmission(params: {
     agent_wallet: params.agentWallet,
     agent_username: agentUsername,
     agent_id: agentId,
+    human_id: humanId,
+    human_display_name: humanDisplayName,
     rating_deadline: deadline,
     created_at: createdAt
   });

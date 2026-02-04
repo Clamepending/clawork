@@ -28,6 +28,7 @@ export default function Home() {
 
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState(0);
+  const [bountyTarget, setBountyTarget] = useState<"agent" | "human">("agent");
   const [posterWallet, setPosterWallet] = useState("");
   const isPaidJob = amount > 0;
   const [connectedWallet, setConnectedWallet] = useState<string | null>(null);
@@ -111,33 +112,77 @@ export default function Home() {
         setSubmitting(false);
         return;
       }
-      posterWalletToUse = connectedWallet;
+      const ethereum = (window as unknown as { ethereum?: { request: (args: { method: string; params?: unknown[] }) => Promise<unknown> } }).ethereum;
+      if (!ethereum) {
+        setFormError("Wallet not available.");
+        setSubmitting(false);
+        return;
+      }
+      // Use the *currently selected* account (Phantom and others can switch accounts after connect)
+      const phantomSelected = (window as unknown as { phantom?: { ethereum?: { selectedAddress?: string } } }).phantom?.ethereum?.selectedAddress;
+      const accounts = (await ethereum.request({ method: "eth_accounts" })) as string[];
+      const currentPayer = (phantomSelected && accounts.includes(phantomSelected) ? phantomSelected : accounts[0]) ?? connectedWallet;
+      if (!currentPayer) {
+        setFormError("No wallet account. Reconnect your wallet.");
+        setSubmitting(false);
+        return;
+      }
+      if (currentPayer.toLowerCase() === treasuryWallet.toLowerCase()) {
+        setFormError("The currently selected wallet is the treasury address. In Phantom, switch to the other account (the one with USDC) and try again.");
+        setSubmitting(false);
+        return;
+      }
+      posterWalletToUse = currentPayer;
+      setConnectedWallet(currentPayer);
       try {
-        const { createWalletClient, custom } = await import("viem");
+        const { createWalletClient, createPublicClient, custom, http } = await import("viem");
         const { base } = await import("viem/chains");
-        const ethereum = (window as unknown as { ethereum?: { request: (args: { method: string; params?: unknown[] }) => Promise<unknown> } }).ethereum;
-        if (!ethereum) {
-          setFormError("Wallet not available.");
-          setSubmitting(false);
-          return;
+        // Ensure wallet is on Base so balance check and transfer use the right chain
+        try {
+          await ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x2105" }] });
+        } catch {
+          // User may reject or Base not added; continue and let transfer fail with clear error if needed
         }
         const walletClient = createWalletClient({
           chain: base,
           transport: custom(ethereum as { request: (...args: unknown[]) => Promise<unknown> }),
         });
-        const account = { address: connectedWallet as `0x${string}`, type: "json-rpc" as const };
+        const account = { address: currentPayer as `0x${string}`, type: "json-rpc" as const };
         const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as const;
         const totalUsdc = amount;
+        const amountRaw = BigInt(Math.ceil(totalUsdc * 1e6));
+        // Check native USDC balance on Base (app uses native USDC, not bridged USDbC)
+        const publicClient = createPublicClient({ chain: base, transport: http("https://mainnet.base.org") });
+        const balanceRaw = await publicClient.readContract({
+          address: USDC_BASE,
+          abi: [{ name: "balanceOf", type: "function", stateMutability: "view", inputs: [{ name: "account", type: "address" }], outputs: [{ type: "uint256" }] }],
+          functionName: "balanceOf",
+          args: [currentPayer as `0x${string}`],
+        });
+        if (balanceRaw < amountRaw) {
+          const balanceUsdc = Number(balanceRaw) / 1e6;
+          setFormError(
+            `Insufficient native USDC on Base. Selected account has ${balanceUsdc.toFixed(2)} USDC. In Phantom, switch to the account that holds USDC, or get native USDC on Base (0x8335…).`
+          );
+          setSubmitting(false);
+          return;
+        }
         const hash = await walletClient.writeContract({
           address: USDC_BASE,
           abi: [{ name: "transfer", type: "function", stateMutability: "nonpayable", inputs: [{ name: "to", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ type: "bool" }] }],
           functionName: "transfer",
-          args: [treasuryWallet as `0x${string}`, BigInt(Math.ceil(totalUsdc * 1e6))],
+          args: [treasuryWallet as `0x${string}`, amountRaw],
           account,
         });
         transactionHash = hash;
       } catch (e) {
-        setFormError(e instanceof Error ? e.message : "USDC transfer failed.");
+        const err = e as { message?: string; shortMessage?: string; walk?: (fn: (e: unknown) => boolean) => unknown };
+        let msg = err?.shortMessage ?? err?.message ?? "USDC transfer failed.";
+        if (msg.includes("Unexpected error") || msg.includes("reverted")) {
+          msg =
+            "USDC transfer reverted. This can happen if Circle has restricted your wallet or the recipient (compliance/blacklist). Try a different wallet, or check your USDC balance and that you're on Base.";
+        }
+        setFormError(msg);
         setSubmitting(false);
         return;
       }
@@ -152,6 +197,7 @@ export default function Home() {
         description,
         amount,
         chain,
+        bounty_type: bountyTarget,
         ...(isPaidJob && posterWalletToUse ? { posterWallet: posterWalletToUse } : {}),
         ...(transactionHash ? { transactionHash } : {}),
       })
@@ -268,6 +314,32 @@ export default function Home() {
               </p>
               <form className="form" onSubmit={submitJob}>
                 <label>
+                  <div className="label">Target</div>
+                  <div style={{ display: "flex", gap: "12px", marginBottom: "8px" }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer" }}>
+                      <input
+                        type="radio"
+                        name="bountyTarget"
+                        checked={bountyTarget === "agent"}
+                        onChange={() => setBountyTarget("agent")}
+                      />
+                      <span>AI Agents</span>
+                    </label>
+                    <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer" }}>
+                      <input
+                        type="radio"
+                        name="bountyTarget"
+                        checked={bountyTarget === "human"}
+                        onChange={() => setBountyTarget("human")}
+                      />
+                      <span>Humans</span>
+                    </label>
+                  </div>
+                  <div style={{ fontSize: "0.85rem", color: "var(--muted)" }}>
+                    Who can claim this bounty: AI agents (via MoltyBounty) or humans (sign in with Gmail on Human Dashboard).
+                  </div>
+                </label>
+                <label>
                   <div className="label">Task description</div>
                   <textarea
                     value={description}
@@ -294,6 +366,7 @@ export default function Home() {
                       <div style={{ fontSize: "0.85rem", color: "var(--muted)", marginBottom: "12px" }}>
                         Paying from <span style={{ fontFamily: "monospace", color: "var(--ink)" }}>{connectedWallet.slice(0, 8)}…{connectedWallet.slice(-6)}</span>
                         {" "}
+                        (select the account that holds USDC in Phantom before paying)
                         <button
                           type="button"
                           onClick={() => setConnectedWallet(null)}

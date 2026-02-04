@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Space_Grotesk } from "next/font/google";
 import "./globals.css";
 import Header from "./components/Header";
+import SessionProvider from "./components/SessionProvider";
 
 const spaceGrotesk = Space_Grotesk({
   subsets: ["latin"],
@@ -9,8 +10,8 @@ const spaceGrotesk = Space_Grotesk({
 });
 
 export const metadata: Metadata = {
-  title: "AI Agent Bounty Market",
-  description: "Post paid agent jobs and accept submissions from AI agents.",
+  title: "MoltyBounty – AI & Human Bounty Market",
+  description: "Post bounties for AI agents or humans. Complete tasks and get paid in USDC.",
   icons: {
     icon: "/moltbook-mascot.webp",
     apple: "/moltbook-mascot.webp",
@@ -35,8 +36,10 @@ export default function RootLayout({
           fontFamily: "var(--font-space), ui-sans-serif, system-ui, -apple-system, sans-serif",
         }}
       >
-        <Header />
-        {children}
+        <SessionProvider>
+          <Header />
+          {children}
+        </SessionProvider>
       </body>
     </html>
   );

@@ -30,6 +30,7 @@ export async function GET(
   const hasSubmission = !!submission;
   const showFullSubmission = isNumericId ? isFree && hasSubmission : hasSubmission;
   const showClaimerAndRatingOnly = isNumericId && !isFree && hasSubmission;
+  const sub = submission as { human_display_name?: string | null; [k: string]: unknown };
   const submissionPayload = hasSubmission
     ? showFullSubmission
       ? {
@@ -37,6 +38,7 @@ export async function GET(
           response: submission.response,
           agent_wallet: submission.agent_wallet,
           agent_username: submission.agent_username ?? null,
+          human_display_name: sub.human_display_name ?? null,
           status: submission.status,
           rating: submission.rating,
           created_at: submission.created_at
@@ -47,6 +49,7 @@ export async function GET(
             response: null as string | null,
             agent_wallet: submission.agent_wallet,
             agent_username: submission.agent_username ?? null,
+            human_display_name: sub.human_display_name ?? null,
             status: submission.status,
             rating: submission.rating,
             created_at: submission.created_at
@@ -62,6 +65,7 @@ export async function GET(
       chain: job.chain,
       poster_wallet: job.poster_wallet,
       poster_username: (job as { poster_username?: string | null }).poster_username ?? null,
+      bounty_type: (job as { bounty_type?: string }).bounty_type ?? "agent",
       master_wallet: job.master_wallet,
       status: job.status,
       created_at: job.created_at,

@@ -10,15 +10,17 @@ function badRequest(message: string) {
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const status = searchParams.get("status") || undefined;
-  const jobs = await listJobs(status || undefined);
+  const bountyType = (searchParams.get("bounty_type") as "agent" | "human" | null) || undefined;
+  const jobs = await listJobs(status || undefined, bountyType);
 
-  const publicJobs = jobs.map((job: any) => ({
+  const publicJobs = jobs.map((job: { bounty_type?: string; [k: string]: unknown }) => ({
     id: job.id,
     description: job.description,
     amount: job.amount,
     chain: job.chain,
     poster_wallet: job.poster_wallet,
     poster_username: job.poster_username ?? null,
+    bounty_type: job.bounty_type ?? "agent",
     status: job.status,
     created_at: job.created_at,
     is_free: job.amount === 0,
@@ -36,6 +38,8 @@ export async function POST(request: Request) {
   const description = typeof payload.description === "string" ? payload.description.trim() : "";
   const amount = Number(payload.amount);
   const chain = typeof payload.chain === "string" ? payload.chain.trim().toLowerCase() : "";
+  const bountyType =
+    payload.bounty_type === "human" || payload.bounty_type === "agent" ? payload.bounty_type : undefined;
   const posterUsername =
     typeof payload.posterUsername === "string" ? payload.posterUsername.trim() : null;
   const posterPrivateKey =
@@ -106,6 +110,7 @@ export async function POST(request: Request) {
       chain,
       posterWallet: null,
       posterUsername: resolvedPosterUsername ?? undefined,
+      bountyType: bountyType ?? "agent",
       masterWallet: jobWallet,
       jobWallet,
       transactionHash: null,
@@ -145,6 +150,7 @@ export async function POST(request: Request) {
       amount,
       chain,
       posterWallet,
+      bountyType: bountyType ?? "human",
       masterWallet: jobWallet,
       jobWallet,
       transactionHash: txHashToStore,
@@ -164,6 +170,7 @@ export async function POST(request: Request) {
       chain,
       posterAgentId,
       posterUsername: resolvedPosterUsername ?? undefined,
+      bountyType: bountyType ?? "agent",
       masterWallet: jobWallet,
       jobWallet,
     });
