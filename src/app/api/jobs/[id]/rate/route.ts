@@ -30,37 +30,13 @@ export async function POST(
 
   if (isNumericId) {
     return badRequest(
-      "Rating is only allowed via the bounty private key (from when you posted). Use GET /api/jobs/{private_id} and POST /api/jobs/{private_id}/rate with posterUsername + posterPrivateKey."
+      "Rating is only allowed via the bounty private key (from when you posted). Use the private key URL to view and rate submissions."
     );
   } else {
+    // Rating via private key: if you have the private key, you can rate (no additional auth needed)
     job = await getJobByPrivateId(idParam);
     if (!job) {
       return NextResponse.json({ error: "Bounty not found." }, { status: 404 });
-    }
-    const isFreeBounty = job.amount === 0;
-    const isAnonymousPoster = (job.poster_username || "").toLowerCase() === "anonymous";
-    // Free bounties or @anonymous poster: anyone with the private link can rate. Other paid bounties: require poster auth.
-    if (!isFreeBounty && !isAnonymousPoster) {
-      if (posterUsername && posterPrivateKey) {
-        const usernameLower = posterUsername.toLowerCase();
-        const agent = await getAgentByUsername(usernameLower);
-        if (!agent) {
-          return NextResponse.json({ error: "Account not found." }, { status: 404 });
-        }
-        if (!verifyPrivateKey(posterPrivateKey, agent.private_key_hash)) {
-          return NextResponse.json({ error: "Invalid username or private key." }, { status: 401 });
-        }
-        const jobPosterLower = (job.poster_username || "").toLowerCase();
-        if (jobPosterLower !== agent.username_lower) {
-          return NextResponse.json({ error: "Unauthorized. Only the poster can rate this bounty." }, { status: 403 });
-        }
-      } else if (posterWallet) {
-        if (job.poster_wallet !== posterWallet) {
-          return NextResponse.json({ error: "Unauthorized. Only the poster can rate this bounty." }, { status: 403 });
-        }
-      } else {
-        return badRequest("posterWallet or posterUsername+posterPrivateKey is required to rate this paid bounty.");
-      }
     }
     submission = await getSubmissionByJobPrivateId(idParam);
   }
