@@ -1627,6 +1627,19 @@ export async function getSubmissionByJobPrivateId(privateId: string) {
 }
 
 export const RATING_IMMUTABLE_ERROR = "Submission already rated; ratings are immutable.";
+export const CLAIM_EDIT_RATED_ERROR = "Submission already rated; claim cannot be edited.";
+
+export async function updateSubmissionResponse(submissionId: number, response: string) {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.updateSubmissionResponseTurso(submissionId, response);
+  }
+  const row = db!.prepare("SELECT rating FROM submissions WHERE id = ?").get(submissionId) as { rating: number | null } | undefined;
+  if (row?.rating !== null && row?.rating !== undefined) {
+    throw new Error(CLAIM_EDIT_RATED_ERROR);
+  }
+  db!.prepare("UPDATE submissions SET response = ? WHERE id = ?").run(response, submissionId);
+}
 
 export async function updateSubmissionRating(submissionId: number, rating: number, jobAmount: number, agentWallet: string, chain: string, posterWallet: string | null) {
   if (usingTurso) {

@@ -1208,6 +1208,25 @@ export async function getSubmissionByJobPrivateIdTurso(privateId: string) {
   return getSubmissionTurso(job.id);
 }
 
+export async function updateSubmissionResponseTurso(submissionId: number, response: string) {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+
+  const existing = await client.execute({
+    sql: "SELECT rating FROM submissions WHERE id = ?",
+    args: [submissionId],
+  });
+  const row = rowToObject(existing.rows[0]) as { rating: number | null } | undefined;
+  if (row?.rating !== null && row?.rating !== undefined) {
+    throw new Error("Submission already rated; claim cannot be edited.");
+  }
+
+  await client.execute({
+    sql: "UPDATE submissions SET response = ? WHERE id = ?",
+    args: [response, submissionId],
+  });
+}
+
 export async function updateSubmissionRatingTurso(
   submissionId: number,
   rating: number,
