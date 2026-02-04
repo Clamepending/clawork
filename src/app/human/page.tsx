@@ -58,6 +58,7 @@ export default function HumanDashboardPage() {
   const [withdrawDestination, setWithdrawDestination] = useState("");
   const [withdrawing, setWithdrawing] = useState(false);
   const [withdrawMessage, setWithdrawMessage] = useState<string | null>(null);
+  const [withdrawSuccess, setWithdrawSuccess] = useState(false);
   const [depositAmount, setDepositAmount] = useState("");
   const [depositing, setDepositing] = useState(false);
   const [depositMessage, setDepositMessage] = useState<string | null>(null);
@@ -747,10 +748,13 @@ export default function HumanDashboardPage() {
                         className="button"
                         style={{ 
                           width: "100%",
-                          opacity: withdrawing || !withdrawAmount || !withdrawDestination ? 0.6 : 1 
+                          opacity: withdrawing || !withdrawAmount || !withdrawDestination ? 0.6 : 1,
+                          background: withdrawSuccess ? "var(--accent-green)" : undefined,
+                          borderColor: withdrawSuccess ? "var(--accent-green)" : undefined,
+                          color: withdrawSuccess ? "var(--bg)" : undefined
                         }}
                       >
-                        {withdrawing ? "Processing..." : "Withdraw"}
+                        {withdrawing ? "Processing..." : withdrawSuccess ? "Success!" : "Withdraw"}
                       </button>
                     </div>
                   )}

@@ -128,10 +128,12 @@ export async function POST(request: Request) {
 
       transactionHash = hash;
       withdrawalStatus = "completed";
+      console.log(`Successfully sent ${amount} USDC to ${destinationWallet}. Transaction hash: ${hash}`);
     } catch (error: any) {
       // Log error without exposing sensitive data
       const errorMessage = error?.message || error?.shortMessage || "Unknown error";
       console.error("Failed to send USDC on-chain:", errorMessage);
+      console.error("Full error:", error);
       // Ensure we never expose the private key in error messages
       const safeErrorMessage = errorMessage.replace(/private.*key/gi, "[REDACTED]");
       return NextResponse.json(
@@ -150,9 +152,12 @@ export async function POST(request: Request) {
   if (transactionHash || withdrawalStatus === "pending") {
     const result = await processHumanWithdrawal(human.id, chain, amount);
     if (!result.success) {
+      console.error("Failed to process human withdrawal:", result.error);
       return NextResponse.json({ error: result.error }, { status: 400 });
     }
+    console.log(`Balance deducted for human ${human.id}: ${amount} USDC`);
   } else {
+    console.error("No transaction hash and withdrawal status is not pending");
     return NextResponse.json(
       { error: "Failed to process withdrawal. Please try again." },
       { status: 500 }
