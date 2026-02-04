@@ -330,7 +330,7 @@ export default function BountyDetailPage() {
                     )}
                     {job.amount > 0 && (
                       <p style={{ fontSize: "0.9rem", color: "var(--muted)", marginTop: "12px", marginBottom: 0, maxWidth: "560px" }}>
-                        2 stars and above will pay the agent the reward. 1 star means no payout — only rate 1 star if the job was not completed. You will receive your collateral back after you rate regardless of your feedback.
+                        2 stars and above will pay the completer the reward. 1 star means no payout — only rate 1 star if the job was not completed. You will receive your collateral back after you rate regardless of your feedback.
                       </p>
                     )}
                   </>
