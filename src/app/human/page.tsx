@@ -524,12 +524,12 @@ export default function HumanDashboardPage() {
                           try {
                             const ethereum = (window as unknown as { ethereum?: { request: (args: { method: string; params?: unknown[] }) => Promise<unknown> } }).ethereum;
                             if (!ethereum) {
-                              setDepositMessage("No wallet found. Install MetaMask or another Web3 wallet.");
+                              setDepositMessage("Wallet not available.");
                               setDepositing(false);
                               return;
                             }
                             
-                            // Request accounts (this will trigger wallet popup)
+                            // Request accounts (this will trigger wallet popup if not already connected)
                             const accounts = (await ethereum.request({ method: "eth_requestAccounts" })) as string[];
                             if (!accounts || accounts.length === 0) {
                               setDepositMessage("Please connect your wallet.");
@@ -537,27 +537,27 @@ export default function HumanDashboardPage() {
                               return;
                             }
                             
-                            // Get current selected account
+                            // Use the *currently selected* account (Phantom and others can switch accounts after connect)
                             const phantomSelected = (window as unknown as { phantom?: { ethereum?: { selectedAddress?: string } } }).phantom?.ethereum?.selectedAddress;
                             const currentPayer = (phantomSelected && accounts.includes(phantomSelected) ? phantomSelected : accounts[0]);
                             
                             if (!currentPayer) {
-                              setDepositMessage("No wallet account selected.");
+                              setDepositMessage("No wallet account. Reconnect your wallet.");
                               setDepositing(false);
                               return;
                             }
                             
                             if (currentPayer.toLowerCase() === masterWallet.toLowerCase()) {
-                              setDepositMessage("Cannot send to yourself. Switch to a different wallet account.");
+                              setDepositMessage("The currently selected wallet is the treasury address. In Phantom, switch to the other account (the one with USDC) and try again.");
                               setDepositing(false);
                               return;
                             }
                             
-                            // Switch to Base chain
+                            // Ensure wallet is on Base so balance check and transfer use the right chain
                             try {
                               await ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x2105" }] });
                             } catch {
-                              // User may reject or Base not added; continue anyway
+                              // User may reject or Base not added; continue and let transfer fail with clear error if needed
                             }
                             
                             // Send USDC
@@ -571,7 +571,7 @@ export default function HumanDashboardPage() {
                             const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as const;
                             const amountRaw = BigInt(Math.ceil(amount * 1e6));
                             
-                            // Check balance
+                            // Check native USDC balance on Base (app uses native USDC, not bridged USDbC)
                             const publicClient = createPublicClient({ chain: base, transport: http("https://mainnet.base.org") });
                             const balanceRaw = await publicClient.readContract({
                               address: USDC_BASE,
@@ -582,7 +582,9 @@ export default function HumanDashboardPage() {
                             
                             if (balanceRaw < amountRaw) {
                               const balanceUsdc = Number(balanceRaw) / 1e6;
-                              setDepositMessage(`Insufficient USDC. You have ${balanceUsdc.toFixed(2)} USDC. Need ${amount.toFixed(2)} USDC.`);
+                              setDepositMessage(
+                                `Insufficient native USDC on Base. Selected account has ${balanceUsdc.toFixed(2)} USDC. In Phantom, switch to the account that holds USDC, or get native USDC on Base (0x8335…).`
+                              );
                               setDepositing(false);
                               return;
                             }
@@ -627,20 +629,14 @@ export default function HumanDashboardPage() {
                               setDepositMessage(data.error || "Deposit recording failed");
                             }
                           } catch (e: any) {
-                            const err = e as { message?: string; shortMessage?: string; code?: number; name?: string };
+                            const err = e as { message?: string; shortMessage?: string; walk?: (fn: (e: unknown) => boolean) => unknown };
                             let msg = err?.shortMessage ?? err?.message ?? "USDC transfer failed.";
-                            
-                            // Handle user rejection
-                            if (err?.code === 4001 || err?.code === -32603 || err?.name === "UserRejectedRequestError" || msg.includes("User rejected") || msg.includes("user rejected")) {
-                              msg = "Transaction cancelled. Please try again.";
-                            } else if (msg.includes("Unexpected error") || msg.includes("reverted")) {
-                              msg = "USDC transfer reverted. Check your USDC balance and that you're on Base network.";
-                            } else if (msg.includes("insufficient funds") || msg.includes("Insufficient")) {
-                              msg = "Insufficient USDC balance. Make sure you have enough USDC on Base.";
+                            if (msg.includes("Unexpected error") || msg.includes("reverted")) {
+                              msg =
+                                "USDC transfer reverted. This can happen if Circle has restricted your wallet or the recipient (compliance/blacklist). Try a different wallet, or check your USDC balance and that you're on Base.";
                             }
-                            
                             setDepositMessage(msg);
-                            setTimeout(() => setDepositMessage(null), 5000);
+                            setDepositing(false);
                           } finally {
                             setDepositing(false);
                           }
@@ -652,7 +648,7 @@ export default function HumanDashboardPage() {
                           opacity: depositing || !depositAmount || parseFloat(depositAmount) < 0.1 ? 0.6 : 1 
                         }}
                       >
-                        {depositing ? "Confirm in wallet…" : `Deposit ${depositAmount || "0"} USDC`}
+                        {depositing ? "Confirm in wallet…" : masterWallet ? `Send USDC to: ${masterWallet.slice(0, 8)}…${masterWallet.slice(-6)}` : `Deposit ${depositAmount || "0"} USDC`}
                       </button>
                     </div>
                   )}
