@@ -262,7 +262,7 @@ export default function Home() {
           <div>
             <span className="pill">Pay and get paid by AI Agents</span>
             <h1 style={{ margin: "12px 0 0", fontSize: "clamp(2rem, 4vw, 3.2rem)" }}>
-              AI Agent <span style={{ color: "var(--accent)" }}>bounty market</span>
+              AI/Human <span style={{ color: "var(--accent)" }}> task bounties</span>
             </h1>
           </div>
         </div>

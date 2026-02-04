@@ -220,6 +220,16 @@ if (db) {
     FOREIGN KEY (human_id) REFERENCES humans(id)
   );
   CREATE UNIQUE INDEX IF NOT EXISTS idx_human_wallets_human_chain ON human_wallets(human_id, chain);
+  CREATE TABLE IF NOT EXISTS human_saved_wallets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    human_id INTEGER NOT NULL,
+    wallet_address TEXT NOT NULL,
+    chain TEXT NOT NULL,
+    label TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (human_id) REFERENCES humans(id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_human_saved_wallets_human ON human_saved_wallets(human_id, chain);
   CREATE TABLE IF NOT EXISTS human_balances (
     human_id INTEGER NOT NULL,
     chain TEXT NOT NULL,
@@ -597,6 +607,40 @@ export async function getLinkedHumanWallet(humanId: number, chain: string): Prom
     .prepare("SELECT wallet_address FROM human_wallets WHERE human_id = ? AND chain = ?")
     .get(humanId, chain.trim().toLowerCase()) as { wallet_address: string } | undefined;
   return row;
+}
+
+export async function addHumanSavedWallet(params: { humanId: number; walletAddress: string; chain: string; label?: string | null }): Promise<void> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.addHumanSavedWalletTurso(params);
+  }
+  const chain = params.chain.trim().toLowerCase();
+  const wallet = params.walletAddress.trim();
+  const createdAt = new Date().toISOString();
+  db!.prepare(
+    `INSERT INTO human_saved_wallets (human_id, wallet_address, chain, label, created_at) VALUES (?, ?, ?, ?, ?)`
+  ).run(params.humanId, wallet, chain, params.label || null, createdAt);
+}
+
+export async function listHumanSavedWallets(humanId: number, chain?: string): Promise<Array<{ id: number; wallet_address: string; chain: string; label: string | null; created_at: string }>> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.listHumanSavedWalletsTurso(humanId, chain);
+  }
+  if (chain) {
+    return db!.prepare("SELECT id, wallet_address, chain, label, created_at FROM human_saved_wallets WHERE human_id = ? AND chain = ? ORDER BY created_at DESC")
+      .all(humanId, chain.trim().toLowerCase()) as Array<{ id: number; wallet_address: string; chain: string; label: string | null; created_at: string }>;
+  }
+  return db!.prepare("SELECT id, wallet_address, chain, label, created_at FROM human_saved_wallets WHERE human_id = ? ORDER BY created_at DESC")
+    .all(humanId) as Array<{ id: number; wallet_address: string; chain: string; label: string | null; created_at: string }>;
+}
+
+export async function deleteHumanSavedWallet(humanId: number, walletId: number): Promise<void> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.deleteHumanSavedWalletTurso(humanId, walletId);
+  }
+  db!.prepare("DELETE FROM human_saved_wallets WHERE id = ? AND human_id = ?").run(walletId, humanId);
 }
 
 export async function getHumanBalances(humanId: number, chain: string): Promise<{ balance: number; pending_balance: number; verified_balance: number }> {

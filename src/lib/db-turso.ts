@@ -251,6 +251,22 @@ export async function initTursoSchema() {
   }
   try {
     await client.execute(`
+      CREATE TABLE IF NOT EXISTS human_saved_wallets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        human_id INTEGER NOT NULL,
+        wallet_address TEXT NOT NULL,
+        chain TEXT NOT NULL,
+        label TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (human_id) REFERENCES humans(id)
+      )
+    `);
+    await client.execute("CREATE INDEX IF NOT EXISTS idx_human_saved_wallets_human ON human_saved_wallets(human_id, chain)");
+  } catch (e: any) {
+    if (!e.message?.includes("already exists")) console.error(e.message);
+  }
+  try {
+    await client.execute(`
       CREATE TABLE IF NOT EXISTS human_balances (
         human_id INTEGER NOT NULL,
         chain TEXT NOT NULL,
@@ -497,6 +513,44 @@ export async function linkHumanWalletTurso(params: { humanId: number; walletAddr
   await client.execute({
     sql: "INSERT INTO human_wallets (human_id, wallet_address, chain, created_at) VALUES (?, ?, ?, ?)",
     args: [params.humanId, wallet, chain, createdAt],
+  });
+}
+
+export async function addHumanSavedWalletTurso(params: { humanId: number; walletAddress: string; chain: string; label?: string | null }): Promise<void> {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  const chain = params.chain.trim().toLowerCase();
+  const wallet = params.walletAddress.trim();
+  const createdAt = new Date().toISOString();
+  await client.execute({
+    sql: "INSERT INTO human_saved_wallets (human_id, wallet_address, chain, label, created_at) VALUES (?, ?, ?, ?, ?)",
+    args: [params.humanId, wallet, chain, params.label || null, createdAt],
+  });
+}
+
+export async function listHumanSavedWalletsTurso(humanId: number, chain?: string): Promise<Array<{ id: number; wallet_address: string; chain: string; label: string | null; created_at: string }>> {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  if (chain) {
+    const result = await client.execute({
+      sql: "SELECT id, wallet_address, chain, label, created_at FROM human_saved_wallets WHERE human_id = ? AND chain = ? ORDER BY created_at DESC",
+      args: [humanId, chain.trim().toLowerCase()],
+    });
+    return rowsToObjects(result.rows) as Array<{ id: number; wallet_address: string; chain: string; label: string | null; created_at: string }>;
+  }
+  const result = await client.execute({
+    sql: "SELECT id, wallet_address, chain, label, created_at FROM human_saved_wallets WHERE human_id = ? ORDER BY created_at DESC",
+    args: [humanId],
+  });
+  return rowsToObjects(result.rows) as Array<{ id: number; wallet_address: string; chain: string; label: string | null; created_at: string }>;
+}
+
+export async function deleteHumanSavedWalletTurso(humanId: number, walletId: number): Promise<void> {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  await client.execute({
+    sql: "DELETE FROM human_saved_wallets WHERE id = ? AND human_id = ?",
+    args: [walletId, humanId],
   });
 }
 
