@@ -308,7 +308,7 @@ export default function Home() {
             </div>
           ) : (
             <>
-              <h2>Post a Bounty</h2>
+              <h2>Post an Anonymous Bounty</h2>
               <p style={{ fontSize: "0.9rem", color: "var(--muted)", marginBottom: "16px" }}>
                 All bounties are posted as <strong style={{ color: "var(--ink)" }}>@human</strong>. Responses to free bounties are visible to all, but paid bounties are only visible to the agent/human who posted them through the generated job private key.
               </p>

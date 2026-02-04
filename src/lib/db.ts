@@ -196,7 +196,17 @@ if (db) {
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     email TEXT NOT NULL UNIQUE,
     display_name TEXT,
+    headline TEXT,
     bio TEXT,
+    city TEXT,
+    state TEXT,
+    country TEXT,
+    skills TEXT,
+    social_links TEXT,
+    rate_per_hour REAL,
+    timezone TEXT,
+    available BOOLEAN NOT NULL DEFAULT 1,
+    show_email BOOLEAN NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
   );
   CREATE UNIQUE INDEX IF NOT EXISTS idx_humans_email ON humans(email);
@@ -221,6 +231,35 @@ if (db) {
     db!.exec(`ALTER TABLE submissions ADD COLUMN human_display_name TEXT`);
   } catch (error: any) {
     if (!error.message?.includes("duplicate column")) throw error;
+  }
+
+  // Migrations for humans table
+  for (const sql of [
+    "ALTER TABLE humans ADD COLUMN headline TEXT",
+    "ALTER TABLE humans ADD COLUMN city TEXT",
+    "ALTER TABLE humans ADD COLUMN state TEXT",
+    "ALTER TABLE humans ADD COLUMN country TEXT",
+    "ALTER TABLE humans ADD COLUMN skills TEXT",
+    "ALTER TABLE humans ADD COLUMN social_links TEXT",
+    "ALTER TABLE humans ADD COLUMN rate_per_hour REAL",
+    "ALTER TABLE humans ADD COLUMN timezone TEXT",
+    "ALTER TABLE humans ADD COLUMN available BOOLEAN DEFAULT 1",
+    "ALTER TABLE humans ADD COLUMN show_email BOOLEAN DEFAULT 0",
+  ]) {
+    try {
+      db!.exec(sql);
+      // Set default values for existing rows
+      if (sql.includes("available")) {
+        db!.exec("UPDATE humans SET available = 1 WHERE available IS NULL");
+      }
+      if (sql.includes("show_email")) {
+        db!.exec("UPDATE humans SET show_email = 0 WHERE show_email IS NULL");
+      }
+    } catch (error: any) {
+      if (!error.message?.includes("duplicate column") && !error.message?.includes("already exists")) {
+        console.error("Migration error:", sql, error.message);
+      }
+    }
   }
 
   // Add rating_deadline column to submissions table if it doesn't exist (migration)
@@ -418,7 +457,17 @@ export type HumanRecord = {
   id: number;
   email: string;
   display_name: string | null;
+  headline: string | null;
   bio: string | null;
+  city: string | null;
+  state: string | null;
+  country: string | null;
+  skills: string | null; // JSON array
+  social_links: string | null; // JSON object
+  rate_per_hour: number | null;
+  timezone: string | null;
+  available: boolean;
+  show_email: boolean;
   created_at: string;
 };
 
@@ -430,13 +479,24 @@ export async function createHuman(params: { email: string; displayName?: string 
   const createdAt = new Date().toISOString();
   const displayName = params.displayName ?? null;
   const info = db!.prepare(
-    `INSERT INTO humans (email, display_name, bio, created_at) VALUES (?, ?, NULL, ?)`
+    `INSERT INTO humans (email, display_name, headline, bio, city, state, country, skills, social_links, rate_per_hour, timezone, available, show_email, created_at) 
+     VALUES (?, ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 1, 0, ?)`
   ).run(params.email.trim().toLowerCase(), displayName, createdAt);
   return {
     id: Number(info.lastInsertRowid),
     email: params.email.trim().toLowerCase(),
     display_name: displayName,
+    headline: null,
     bio: null,
+    city: null,
+    state: null,
+    country: null,
+    skills: null,
+    social_links: null,
+    rate_per_hour: null,
+    timezone: null,
+    available: true,
+    show_email: false,
     created_at: createdAt,
   };
 }
@@ -457,16 +517,50 @@ export async function getHumanById(id: number): Promise<HumanRecord | undefined>
   return db!.prepare("SELECT * FROM humans WHERE id = ?").get(id) as HumanRecord | undefined;
 }
 
-export async function updateHuman(params: { id: number; displayName?: string | null; bio?: string | null }): Promise<void> {
+export async function updateHuman(params: {
+  id: number;
+  displayName?: string | null;
+  headline?: string | null;
+  bio?: string | null;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  skills?: string | null;
+  socialLinks?: string | null;
+  ratePerHour?: number | null;
+  timezone?: string | null;
+  available?: boolean;
+  showEmail?: boolean;
+}): Promise<void> {
   if (usingTurso) {
     const turso = await getTurso();
     return turso.updateHumanTurso(params);
   }
   const human = await getHumanById(params.id);
-  if (!human) return;
+  if (!human) {
+    throw new Error(`Human with id ${params.id} not found`);
+  }
   const displayName = params.displayName !== undefined ? params.displayName : human.display_name;
+  const headline = params.headline !== undefined ? params.headline : human.headline;
   const bio = params.bio !== undefined ? (params.bio && params.bio.length > 200 ? params.bio.slice(0, 200) : params.bio) : human.bio;
-  db!.prepare("UPDATE humans SET display_name = ?, bio = ? WHERE id = ?").run(displayName, bio, params.id);
+  const city = params.city !== undefined ? params.city : human.city;
+  const state = params.state !== undefined ? params.state : human.state;
+  const country = params.country !== undefined ? params.country : human.country;
+  const skills = params.skills !== undefined ? params.skills : human.skills;
+  const socialLinks = params.socialLinks !== undefined ? params.socialLinks : human.social_links;
+  const ratePerHour = params.ratePerHour !== undefined ? params.ratePerHour : human.rate_per_hour;
+  const timezone = params.timezone !== undefined ? params.timezone : human.timezone;
+  const available = params.available !== undefined ? params.available : (human.available ?? true);
+  const showEmail = params.showEmail !== undefined ? params.showEmail : (human.show_email ?? false);
+  try {
+    db!.prepare(
+      `UPDATE humans SET display_name = ?, headline = ?, bio = ?, city = ?, state = ?, country = ?, skills = ?, social_links = ?, rate_per_hour = ?, timezone = ?, available = ?, show_email = ? WHERE id = ?`
+    ).run(displayName, headline, bio, city, state, country, skills, socialLinks, ratePerHour, timezone, available ? 1 : 0, showEmail ? 1 : 0, params.id);
+  } catch (error: any) {
+    console.error("Error updating human:", error);
+    console.error("SQL params:", { displayName, headline, bio, city, state, country, skills, socialLinks, ratePerHour, timezone, available, showEmail, id: params.id });
+    throw new Error(`Failed to update human: ${error.message}`);
+  }
 }
 
 export async function linkHumanWallet(params: { humanId: number; walletAddress: string; chain: string }): Promise<void> {
