@@ -90,6 +90,24 @@ export default function Home() {
     setConnectingWallet(true);
     setFormError(null);
     try {
+      // First check if already connected
+      const existingAccounts = (await ethereum.request({ method: "eth_accounts" })) as string[];
+      if (existingAccounts.length > 0) {
+        // Already connected, use existing account
+        setConnectedWallet(existingAccounts[0]);
+        try {
+          await ethereum.request({
+            method: "wallet_switchEthereumChain",
+            params: [{ chainId: "0x2105" }],
+          });
+        } catch {
+          // User may reject or chain not added; continue anyway
+        }
+        setConnectingWallet(false);
+        return;
+      }
+      
+      // Not connected, request connection (this will trigger popup)
       const accounts = (await ethereum.request({ method: "eth_requestAccounts" })) as string[];
       if (accounts.length) {
         setConnectedWallet(accounts[0]);
@@ -101,9 +119,16 @@ export default function Home() {
         } catch {
           // User may reject or chain not added; continue anyway
         }
+      } else {
+        setFormError("No accounts returned. Please approve the connection in your wallet.");
       }
-    } catch (e) {
-      setFormError(e instanceof Error ? e.message : "Failed to connect wallet.");
+    } catch (e: any) {
+      const err = e as { code?: number; message?: string };
+      if (err?.code === 4001 || err?.code === -32603) {
+        setFormError("Connection rejected. Please approve the connection in your wallet popup.");
+      } else {
+        setFormError(e instanceof Error ? e.message : "Failed to connect wallet.");
+      }
     } finally {
       setConnectingWallet(false);
     }
