@@ -11,7 +11,7 @@ export async function GET(
 ) {
   const username = (params.wallet || "").trim();
   const { searchParams } = new URL(request.url);
-  const chain = (searchParams.get("chain") || "solana").toLowerCase();
+  const chain = (searchParams.get("chain") || "base-usdc").toLowerCase();
 
   if (!username) {
     return NextResponse.json({ error: "Username is required." }, { status: 400 });

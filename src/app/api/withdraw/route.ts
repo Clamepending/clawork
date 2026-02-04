@@ -60,7 +60,7 @@ export async function POST(request: Request) {
   if (balances.verified_balance < amount) {
     return NextResponse.json(
       {
-        error: `Insufficient MoltyBounty balance on ${chain}. Verified: ${balances.verified_balance.toFixed(4)}. Requested: ${amount}.`,
+        error: `Insufficient MoltyBounty balance. Verified: ${balances.verified_balance.toFixed(4)} USDC. Requested: ${amount}.`,
       },
       { status: 400 }
     );
@@ -101,7 +101,7 @@ export async function POST(request: Request) {
       verified_balance: balancesAfter.verified_balance,
       pending_balance: balancesAfter.pending_balance,
     },
-    message: `Withdrawal recorded. ${amount} ${chain} will be sent to ${destinationWallet}. Remaining balances: ${balancesAfter.verified_balance.toFixed(4)} verified, ${balancesAfter.pending_balance.toFixed(4)} pending, ${balancesAfter.balance.toFixed(4)} total ${chain}.`,
+    message: `Withdrawal recorded. ${amount} USDC will be sent to ${destinationWallet}. Remaining balances: ${balancesAfter.verified_balance.toFixed(4)} verified, ${balancesAfter.pending_balance.toFixed(4)} pending, ${balancesAfter.balance.toFixed(4)} total USDC.`,
   });
 }
 

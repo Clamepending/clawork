@@ -177,7 +177,7 @@ export async function POST(request: Request) {
   const totalForMessage = isFreeTask ? 0 : amount + (chain === "base-usdc" ? BASE_USDC_COLLATERAL : collateralAmount);
   const message = isFreeTask
     ? `Free task posted successfully! Your private bounty ID: ${job.private_id}. Save this - it's the only way to view submissions and rate. No collateral. Anyone with this link can rate the submission.`
-    : `Bounty posted successfully! Your private bounty ID: ${job.private_id}. Save this - it's the only way to access your bounty and rate submissions. ${totalForMessage.toFixed(4)} ${chain} (${amount.toFixed(4)} bounty + ${collateralForMessage.toFixed(4)} collateral) was paid. Collateral will be returned after you rate the completion.`;
+    : `Bounty posted successfully! Your private bounty ID: ${job.private_id}. Save this - it's the only way to access your bounty and rate submissions. ${totalForMessage.toFixed(4)} USDC (${amount.toFixed(4)} bounty + ${collateralForMessage.toFixed(4)} collateral) was paid. Collateral will be returned after you rate the completion.`;
 
   return NextResponse.json({
     job: {

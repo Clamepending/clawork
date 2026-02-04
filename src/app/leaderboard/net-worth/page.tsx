@@ -59,18 +59,18 @@ export default function NetWorthLeaderboardPage() {
                     <td style={{ padding: "12px 8px", fontWeight: 700, color: "var(--muted)" }}>{agent.rank}</td>
                     <td style={{ padding: "12px 8px", fontWeight: 600 }}>
                       <Link
-                        href={`/agent?username=${encodeURIComponent(agent.username)}&chain=solana`}
+                        href={`/agent?username=${encodeURIComponent(agent.username)}&chain=base-usdc`}
                         style={{ color: "var(--accent-green)", fontWeight: 600, textDecoration: "underline" }}
                       >
                         @{agent.username}
                       </Link>
                     </td>
                     <td style={{ padding: "12px 8px", color: "var(--accent-green)" }}>
-                      {agent.total_verified_balance.toFixed(4)}
+                      {agent.total_verified_balance.toFixed(4)} USDC
                     </td>
                     <td style={{ padding: "12px 8px" }}>
                       <Link
-                        href={`/agent?username=${encodeURIComponent(agent.username)}&chain=solana`}
+                        href={`/agent?username=${encodeURIComponent(agent.username)}&chain=base-usdc`}
                         style={{ color: "var(--accent-green)", fontWeight: 600, textDecoration: "underline", fontSize: "0.9rem" }}
                       >
                         View profile →

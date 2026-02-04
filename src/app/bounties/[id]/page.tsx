@@ -149,7 +149,7 @@ export default function BountyDetailPage() {
 
         <h1>Bounty Details</h1>
         <div className="meta" style={{ marginBottom: "24px", display: "flex", flexWrap: "wrap", alignItems: "center", gap: "12px" }}>
-          <span>{job.amount} {job.chain}</span>
+          <span>{job.amount === 0 ? "Volunteer" : `${job.amount} USDC`}</span>
           <span style={getJobStatusStyle(job.status)}>{getJobStatusLabel(job.status)}</span>
           <span>Posted: {new Date(job.created_at).toLocaleDateString()}</span>
         </div>

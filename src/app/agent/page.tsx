@@ -3,6 +3,7 @@
 import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { getJobStatusStyle, getJobStatusLabel } from "@/lib/job-status";
+import { formatAmountLabel } from "@/lib/format";
 
 const POSTING_COLLATERAL = 0.001;
 
@@ -51,7 +52,7 @@ type CompletedJob = {
 function AgentLookupContent() {
   const searchParams = useSearchParams();
   const [walletAddress, setWalletAddress] = useState("");
-  const [chain, setChain] = useState("solana");
+  const [chain, setChain] = useState("base-usdc");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [balanceInfo, setBalanceInfo] = useState<BalanceInfo | null>(null);
@@ -150,7 +151,7 @@ function AgentLookupContent() {
       if (chainParam) {
         setChain(chainParam);
       }
-      lookupByUsername(usernameParam, chainParam || "solana");
+      lookupByUsername(usernameParam, chainParam || "base-usdc");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
@@ -221,7 +222,7 @@ function AgentLookupContent() {
                 Total Balance
               </div>
               <div style={{ fontSize: "2rem", fontWeight: 700, fontFamily: "monospace" }}>
-                {balanceInfo.balance.toFixed(4)} {chain}
+                {balanceInfo.balance.toFixed(4)} USDC
               </div>
             </div>
 
@@ -231,7 +232,7 @@ function AgentLookupContent() {
                   ✓ Verified Balance
                 </div>
                 <div style={{ fontSize: "1.5rem", fontWeight: 700, fontFamily: "monospace", color: "var(--accent-green)" }}>
-                  {balanceInfo.verified_balance.toFixed(4)} {chain}
+                  {balanceInfo.verified_balance.toFixed(4)} USDC
                 </div>
                 <div style={{ fontSize: "0.8rem", color: "var(--accent-green)", marginTop: "4px", opacity: 0.9 }}>
                   Withdrawable
@@ -243,7 +244,7 @@ function AgentLookupContent() {
                   ⏳ Pending Balance
                 </div>
                 <div style={{ fontSize: "1.5rem", fontWeight: 700, fontFamily: "monospace", color: "var(--accent)" }}>
-                  {balanceInfo.pending_balance.toFixed(4)} {chain}
+                  {balanceInfo.pending_balance.toFixed(4)} USDC
                 </div>
                 <div style={{ fontSize: "0.8rem", color: "var(--accent)", marginTop: "4px", opacity: 0.9 }}>
                   Awaiting Rating
@@ -253,7 +254,7 @@ function AgentLookupContent() {
 
             <div style={{ padding: "12px", background: balanceInfo.canPostPaidBounties ? "rgba(0, 255, 127, 0.08)" : "rgba(255, 59, 59, 0.12)", borderRadius: "8px" }}>
               <div style={{ fontSize: "0.9rem", fontWeight: 600, color: balanceInfo.canPostPaidBounties ? "var(--accent-green)" : "var(--accent)" }}>
-                {balanceInfo.canPostPaidBounties ? "✓ Can post paid bounties" : `✗ Cannot post paid bounties (agent balance below collateral of ${POSTING_COLLATERAL})`}
+                {balanceInfo.canPostPaidBounties ? "✓ Can post paid bounties" : `✗ Cannot post paid bounties (agent balance below collateral of ${POSTING_COLLATERAL} USDC)`}
               </div>
             </div>
 
@@ -294,7 +295,7 @@ function AgentLookupContent() {
                   {job.description}
                 </div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", alignItems: "center", fontSize: "0.85rem", color: "var(--muted)" }}>
-                  <span>{job.amount} {job.chain}</span>
+                  <span>{formatAmountLabel(job.amount, job.chain)}</span>
                   <span>Bounty #{job.job_id}</span>
                   <span style={getJobStatusStyle(job.job_status)}>{getJobStatusLabel(job.job_status)}</span>
                   {job.rating != null ? (
@@ -407,6 +408,7 @@ function AgentLookupContent() {
           <label>
             <div className="label">Chain</div>
             <select value={chain} onChange={(e) => setChain(e.target.value)}>
+              <option value="base-usdc">Base (USDC)</option>
               <option value="solana">Solana</option>
               <option value="ethereum">Ethereum</option>
             </select>
@@ -460,7 +462,7 @@ function AgentLookupContent() {
                       <td style={{ padding: "12px 8px" }}>
                         {hasProfile ? (
                           <a
-                            href={`/agent?username=${encodeURIComponent(agent.agent_username!)}&chain=solana`}
+                            href={`/agent?username=${encodeURIComponent(agent.agent_username!)}&chain=base-usdc`}
                             style={{ color: "var(--accent-green)", fontWeight: 600, textDecoration: "underline", fontSize: "0.9rem" }}
                           >
                             View →

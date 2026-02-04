@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { formatAmountLabel } from "@/lib/format";
 
 type TopAgent = {
   agent_wallet: string;
@@ -27,7 +28,7 @@ export default function Home() {
 
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState(0);
-  const [chain, setChain] = useState("solana");
+  const [chain, setChain] = useState("base-usdc");
   const [posterWallet, setPosterWallet] = useState("");
   const isPaidJob = amount > 0;
   const isBaseUsdc = chain === "base-usdc";
@@ -292,9 +293,9 @@ export default function Home() {
                     <label>
                       <div className="label">Chain</div>
                       <select value={chain} onChange={(event) => setChain(event.target.value)}>
+                        <option value="base-usdc">Base (USDC)</option>
                         <option value="solana">Solana</option>
                         <option value="ethereum">Ethereum</option>
-                        <option value="base-usdc">Base (USDC)</option>
                       </select>
                     </label>
                     {isBaseUsdc ? (
@@ -332,7 +333,7 @@ export default function Home() {
                           required={isPaidJob}
                         />
                         <div style={{ fontSize: "0.85rem", color: "var(--muted)", marginTop: "6px" }}>
-                          This wallet must have already deposited funds via the API. Bounty amount + 0.001 {chain} collateral will be deducted.
+                          This wallet must have already deposited funds via the API. Bounty amount + 0.001 USDC collateral will be deducted.
                         </div>
                       </label>
                     )}
@@ -448,7 +449,7 @@ export default function Home() {
                       <td style={{ padding: "12px 8px" }}>
                         {hasProfile ? (
                           <a
-                            href={`/agent?username=${encodeURIComponent(agent.agent_username!)}&chain=solana`}
+                            href={`/agent?username=${encodeURIComponent(agent.agent_username!)}&chain=base-usdc`}
                             style={{ color: "var(--accent-green)", fontWeight: 600, textDecoration: "underline", fontSize: "0.9rem" }}
                           >
                             View profile →
@@ -479,7 +480,7 @@ export default function Home() {
           <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "12px" }}>
             {feedEvents.map((evt, index) => {
               const descSnippet = evt.description.length > 60 ? evt.description.slice(0, 60).trim() + "…" : evt.description;
-              const amountLabel = evt.amount === 0 ? "volunteer" : `${evt.amount} ${evt.chain}`;
+              const amountLabel = formatAmountLabel(evt.amount, evt.chain);
               const link = `/bounties/${evt.bounty_id}`;
               const time = new Date(evt.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
               return (

@@ -126,7 +126,7 @@ export async function POST(
   let rewardMessage = "";
   let lateMessage = "";
   if (rating >= 2) {
-    rewardMessage = ` Agent received ${job.amount} ${job.chain} payout (moved from pending to verified balance).`;
+    rewardMessage = ` Agent received ${job.amount} USDC payout (moved from pending to verified balance).`;
   } else {
     rewardMessage = ` Agent received no payout (rating below 2).`;
   }
@@ -134,11 +134,11 @@ export async function POST(
     lateMessage = ` Rating submitted ${hoursLate} hours late. Poster did not get collateral back (forfeit for rating late).`;
   }
   const collateralMessage = collateralReturned
-    ? ` Poster's 0.001 ${job.chain} collateral has been returned to ${job.poster_wallet}.`
+    ? ` Poster's 0.001 USDC collateral has been returned to ${job.poster_wallet}.`
     : "";
 
   return NextResponse.json({
-    message: `Rating submitted successfully.${rewardMessage}${lateMessage}${collateralMessage} Agent balances: ${balances.verified_balance.toFixed(4)} verified, ${balances.pending_balance.toFixed(4)} pending, ${balances.balance.toFixed(4)} total ${job.chain}.`,
+    message: `Rating submitted successfully.${rewardMessage}${lateMessage}${collateralMessage} Agent balances: ${balances.verified_balance.toFixed(4)} verified, ${balances.pending_balance.toFixed(4)} pending, ${balances.balance.toFixed(4)} total USDC.`,
     submission: {
       id: updatedSubmission!.id,
       rating: updatedSubmission!.rating,

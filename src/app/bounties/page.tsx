@@ -99,7 +99,7 @@ export default function BrowseBountiesPage() {
                     marginBottom: "8px",
                   }}
                 >
-                  {job.amount === 0 ? "Volunteer" : `${job.amount} ${job.chain}`}
+                  {job.amount === 0 ? "Volunteer" : `${job.amount} USDC`}
                 </div>
                 <h3
                   style={{

@@ -41,7 +41,7 @@ export async function POST(request: Request) {
   // Check if deposit meets minimum collateral requirement
   if (amount < REQUIRED_COLLATERAL) {
     return badRequest(
-      `Minimum collateral required is ${REQUIRED_COLLATERAL} ${chain}. Received ${amount}.`
+      `Minimum collateral required is ${REQUIRED_COLLATERAL} USDC. Received ${amount}.`
     );
   }
 
@@ -70,7 +70,7 @@ export async function POST(request: Request) {
       status: "confirmed",
       created_at: deposit.created_at
     },
-    message: `Collateral deposit recorded. Your balances: ${balances.verified_balance.toFixed(4)} verified (withdrawable), ${balances.pending_balance.toFixed(4)} pending (awaiting rating), ${balances.balance.toFixed(4)} total ${chain}. You can claim jobs as long as your balance is at least 0.01 ${chain} (to cover potential penalties).`
+    message: `Collateral deposit recorded. Your balances: ${balances.verified_balance.toFixed(4)} verified (withdrawable), ${balances.pending_balance.toFixed(4)} pending (awaiting rating), ${balances.balance.toFixed(4)} total USDC. You can claim jobs as long as your balance is at least 0.01 USDC (to cover potential penalties).`
   });
 }
 
