@@ -220,6 +220,17 @@ if (db) {
     FOREIGN KEY (human_id) REFERENCES humans(id)
   );
   CREATE UNIQUE INDEX IF NOT EXISTS idx_human_wallets_human_chain ON human_wallets(human_id, chain);
+  CREATE TABLE IF NOT EXISTS human_balances (
+    human_id INTEGER NOT NULL,
+    chain TEXT NOT NULL,
+    verified_balance REAL NOT NULL DEFAULT 0.0,
+    pending_balance REAL NOT NULL DEFAULT 0.0,
+    balance REAL NOT NULL DEFAULT 0.0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (human_id, chain),
+    FOREIGN KEY (human_id) REFERENCES humans(id)
+  );
   `);
 
   try {
@@ -586,6 +597,113 @@ export async function getLinkedHumanWallet(humanId: number, chain: string): Prom
     .prepare("SELECT wallet_address FROM human_wallets WHERE human_id = ? AND chain = ?")
     .get(humanId, chain.trim().toLowerCase()) as { wallet_address: string } | undefined;
   return row;
+}
+
+export async function getHumanBalances(humanId: number, chain: string): Promise<{ balance: number; pending_balance: number; verified_balance: number }> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.getHumanBalancesTurso(humanId, chain);
+  }
+  const row = db!
+    .prepare("SELECT balance, pending_balance, verified_balance FROM human_balances WHERE human_id = ? AND chain = ?")
+    .get(humanId, chain.trim().toLowerCase()) as { balance: number; pending_balance: number; verified_balance: number } | undefined;
+  return row ?? { balance: 0, pending_balance: 0, verified_balance: 0 };
+}
+
+async function ensureHumanBalanceRow(humanId: number, chain: string): Promise<void> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.ensureHumanBalanceRowTurso(humanId, chain);
+  }
+  const existing = db!
+    .prepare("SELECT 1 FROM human_balances WHERE human_id = ? AND chain = ?")
+    .get(humanId, chain.trim().toLowerCase());
+  if (!existing) {
+    const now = new Date().toISOString();
+    db!.prepare(
+      `INSERT INTO human_balances (human_id, chain, verified_balance, pending_balance, balance, created_at, updated_at)
+       VALUES (?, ?, 0.0, 0.0, 0.0, ?, ?)`
+    ).run(humanId, chain.trim().toLowerCase(), now, now);
+  }
+}
+
+export async function creditHumanPending(humanId: number, chain: string, amount: number): Promise<void> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.creditHumanPendingTurso(humanId, chain, amount);
+  }
+  await ensureHumanBalanceRow(humanId, chain);
+  const row = db!.prepare("SELECT pending_balance, balance FROM human_balances WHERE human_id = ? AND chain = ?").get(humanId, chain.trim().toLowerCase()) as { pending_balance: number; balance: number };
+  const newPending = row.pending_balance + amount;
+  const newBalance = row.balance + amount;
+  const now = new Date().toISOString();
+  db!.prepare("UPDATE human_balances SET pending_balance = ?, balance = ?, updated_at = ? WHERE human_id = ? AND chain = ?")
+    .run(newPending, newBalance, now, humanId, chain.trim().toLowerCase());
+}
+
+export async function moveHumanPendingToVerified(humanId: number, chain: string, amount: number): Promise<void> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.moveHumanPendingToVerifiedTurso(humanId, chain, amount);
+  }
+  await ensureHumanBalanceRow(humanId, chain);
+  const row = db!.prepare("SELECT pending_balance, verified_balance, balance FROM human_balances WHERE human_id = ? AND chain = ?").get(humanId, chain.trim().toLowerCase()) as { pending_balance: number; verified_balance: number; balance: number } | undefined;
+  if (!row) return;
+  const newPending = Math.max(0, row.pending_balance - amount);
+  const newVerified = row.verified_balance + amount;
+  const newBalance = newPending + newVerified;
+  const now = new Date().toISOString();
+  db!.prepare("UPDATE human_balances SET pending_balance = ?, verified_balance = ?, balance = ?, updated_at = ? WHERE human_id = ? AND chain = ?")
+    .run(newPending, newVerified, newBalance, now, humanId, chain.trim().toLowerCase());
+}
+
+export async function processHumanWithdrawal(humanId: number, chain: string, amount: number): Promise<{ success: boolean; error?: string }> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.processHumanWithdrawalTurso(humanId, chain, amount);
+  }
+  await ensureHumanBalanceRow(humanId, chain);
+  const row = db!.prepare("SELECT verified_balance, balance FROM human_balances WHERE human_id = ? AND chain = ?").get(humanId, chain.trim().toLowerCase()) as { verified_balance: number; balance: number } | undefined;
+  if (!row) return { success: false, error: "Balance row not found" };
+  if (row.verified_balance < amount) return { success: false, error: `Insufficient verified balance. Available: ${row.verified_balance}, Requested: ${amount}` };
+  const newVerified = row.verified_balance - amount;
+  const newBalance = newVerified + (row.balance - row.verified_balance);
+  const now = new Date().toISOString();
+  db!.prepare("UPDATE human_balances SET verified_balance = ?, balance = ?, updated_at = ? WHERE human_id = ? AND chain = ?")
+    .run(newVerified, newBalance, now, humanId, chain.trim().toLowerCase());
+  return { success: true };
+}
+
+export async function listAllAgents(limit?: number): Promise<AgentRecord[]> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.listAllAgentsTurso(limit);
+  }
+  if (limit) {
+    return db!.prepare("SELECT * FROM agents ORDER BY created_at DESC LIMIT ?").all(limit) as AgentRecord[];
+  }
+  return db!.prepare("SELECT * FROM agents ORDER BY created_at DESC").all() as AgentRecord[];
+}
+
+export async function listAllHumans(limit?: number, availableOnly?: boolean): Promise<HumanRecord[]> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.listAllHumansTurso(limit, availableOnly);
+  }
+  let query = "SELECT * FROM humans";
+  const conditions: string[] = [];
+  if (availableOnly) {
+    conditions.push("available = 1");
+  }
+  if (conditions.length > 0) {
+    query += " WHERE " + conditions.join(" AND ");
+  }
+  query += " ORDER BY created_at DESC";
+  if (limit) {
+    query += " LIMIT ?";
+    return db!.prepare(query).all(limit) as HumanRecord[];
+  }
+  return db!.prepare(query).all() as HumanRecord[];
 }
 
 // --- Agent balances (MoltyBounty balance by username; no wallet required) ---
@@ -1095,7 +1213,9 @@ export async function createSubmission(params: {
 
   const submissionId = Number(info.lastInsertRowid);
 
-  if (agentId != null) {
+  if (humanId != null && params.jobAmount > 0) {
+    await creditHumanPending(humanId, params.chain, params.jobAmount);
+  } else if (agentId != null) {
     await creditAgentPending(agentId, params.chain, params.jobAmount);
   } else {
     let deposit = await getDeposit(params.agentWallet, params.chain);
@@ -1295,6 +1415,65 @@ export async function getAgentRatingsByUsername(usernameLower: string) {
   };
 }
 
+export async function getHumanRatingsByHumanId(humanId: number) {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.getHumanRatingsByHumanIdTurso(humanId);
+  }
+  const submissions = db!
+    .prepare("SELECT rating, created_at FROM submissions WHERE human_id = ? AND rating IS NOT NULL AND rating > 0 ORDER BY created_at DESC")
+    .all(humanId) as { rating: number; created_at: string }[];
+  const ratings = submissions.map(s => s.rating);
+  const rawAverage = ratings.length > 0 ? ratings.reduce((sum, r) => sum + r, 0) / ratings.length : null;
+  return {
+    ratings,
+    average: roundAverageRating(rawAverage),
+    total_rated: ratings.length,
+    breakdown: {
+      5: ratings.filter(r => r === 5).length,
+      4: ratings.filter(r => r === 4).length,
+      3: ratings.filter(r => r === 3).length,
+      2: ratings.filter(r => r === 2).length,
+      1: ratings.filter(r => r === 1).length,
+    },
+  };
+}
+
+export async function listHumanSubmissionsByHumanId(humanId: number): Promise<Array<{
+  submission_id: number;
+  job_id: number;
+  description: string;
+  amount: number;
+  chain: string;
+  job_status: string;
+  rating: number | null;
+  created_at: string;
+}>> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.listHumanSubmissionsByHumanIdTurso(humanId);
+  }
+  const rows = db!
+    .prepare(
+      `SELECT s.id as submission_id, j.id as job_id, j.description, j.amount, j.chain, j.status as job_status, s.rating, s.created_at
+       FROM submissions s
+       JOIN jobs j ON s.job_id = j.id
+       WHERE s.human_id = ?
+       ORDER BY s.created_at DESC`
+    )
+    .all(humanId) as Array<{
+      submission_id: number;
+      job_id: number;
+      description: string;
+      amount: number;
+      chain: string;
+      job_status: string;
+      rating: number | null;
+      created_at: string;
+    }>;
+  return rows;
+}
+
 export type TopAgentRow = {
   agent_wallet: string;
   agent_username: string | null;
@@ -1376,8 +1555,27 @@ export async function updateSubmissionRating(submissionId: number, rating: numbe
   const stmt = db!.prepare("UPDATE submissions SET rating = ? WHERE id = ?");
   stmt.run(rating, submissionId);
 
-  const submissionRow = db!.prepare("SELECT agent_id FROM submissions WHERE id = ?").get(submissionId) as { agent_id: number | null } | undefined;
+  const submissionRow = db!.prepare("SELECT agent_id, human_id FROM submissions WHERE id = ?").get(submissionId) as { agent_id: number | null; human_id: number | null } | undefined;
   const agentId = submissionRow?.agent_id ?? null;
+  const humanId = submissionRow?.human_id ?? null;
+
+  if (humanId != null && jobAmount > 0) {
+    if (rating >= 2) {
+      await moveHumanPendingToVerified(humanId, chain, jobAmount);
+    } else {
+      // For humans, if rating < 2, we still need to deduct pending but don't move to verified
+      await ensureHumanBalanceRow(humanId, chain);
+      const row = db!.prepare("SELECT pending_balance, balance FROM human_balances WHERE human_id = ? AND chain = ?").get(humanId, chain.trim().toLowerCase()) as { pending_balance: number; balance: number } | undefined;
+      if (row) {
+        const newPending = Math.max(0, row.pending_balance - jobAmount);
+        const newBalance = row.balance - jobAmount;
+        const now = new Date().toISOString();
+        db!.prepare("UPDATE human_balances SET pending_balance = ?, balance = ?, updated_at = ? WHERE human_id = ? AND chain = ?")
+          .run(newPending, newBalance, now, humanId, chain.trim().toLowerCase());
+      }
+    }
+    return;
+  }
 
   if (agentId != null) {
     if (rating >= 2) {
@@ -1415,17 +1613,24 @@ export async function checkAndApplyLateRatingPenalties() {
     return turso.checkAndApplyLateRatingPenaltiesTurso();
   }
   const now = new Date().toISOString();
+  // For humans: include submissions that are past deadline AND (not rated OR rated < 2)
+  // This ensures humans get auto-verified after 24 hours even if rated < 2 stars
   const lateSubmissions = db!.prepare(`
-    SELECT s.id, s.job_id, s.agent_wallet, s.agent_id, s.rating_deadline, j.chain, j.poster_wallet, j.amount
+    SELECT s.id, s.job_id, s.agent_wallet, s.agent_id, s.human_id, s.rating_deadline, s.rating, j.chain, j.poster_wallet, j.amount
     FROM submissions s
     JOIN jobs j ON s.job_id = j.id
-    WHERE s.rating IS NULL AND s.rating_deadline < ?
+    WHERE s.rating_deadline < ? AND (
+      (s.rating IS NULL) OR 
+      (s.human_id IS NOT NULL AND s.rating < 2)
+    )
   `).all(now) as Array<{
     id: number;
     job_id: number;
     agent_wallet: string;
     agent_id: number | null;
+    human_id: number | null;
     rating_deadline: string;
+    rating: number | null;
     chain: string;
     poster_wallet: string | null;
     amount: number;
@@ -1433,7 +1638,23 @@ export async function checkAndApplyLateRatingPenalties() {
 
   for (const sub of lateSubmissions) {
     if (sub.amount > 0) {
-      if (sub.agent_id != null) {
+      if (sub.human_id != null) {
+        // For humans: automatically move pending to verified after 24 hours
+        // This applies even if rated < 2 stars (we restore the deducted amount)
+        const humanBalances = await getHumanBalances(sub.human_id, sub.chain);
+        const pendingToMove = Math.min(humanBalances.pending_balance, sub.amount);
+        const amountToAdd = sub.amount; // Always add the full amount to verified
+        
+        // Deduct from pending (may be less than amount if already deducted)
+        const newPending = Math.max(0, humanBalances.pending_balance - sub.amount);
+        // Add full amount to verified (restores if it was deducted)
+        const newVerified = humanBalances.verified_balance + amountToAdd;
+        // Adjust total balance: subtract what we removed from pending, add to verified
+        const newBalance = humanBalances.balance - pendingToMove + amountToAdd;
+        const now = new Date().toISOString();
+        db!.prepare("UPDATE human_balances SET pending_balance = ?, verified_balance = ?, balance = ?, updated_at = ? WHERE human_id = ? AND chain = ?")
+          .run(newPending, newVerified, newBalance, now, sub.human_id, sub.chain.trim().toLowerCase());
+      } else if (sub.agent_id != null) {
         await moveAgentPendingToVerified(sub.agent_id, sub.chain, sub.amount);
       } else {
         const agentDeposit = await getDeposit(sub.agent_wallet, sub.chain);
@@ -1446,7 +1667,10 @@ export async function checkAndApplyLateRatingPenalties() {
         }
       }
     }
-    db!.prepare("UPDATE submissions SET rating = 0 WHERE id = ?").run(sub.id);
+    // Mark as auto-verified (rating = 0) if not already rated
+    if (sub.rating === null) {
+      db!.prepare("UPDATE submissions SET rating = 0 WHERE id = ?").run(sub.id);
+    }
   }
 
   return lateSubmissions.length;

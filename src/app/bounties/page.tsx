@@ -151,12 +151,12 @@ export default function BrowseBountiesPage() {
           <div style={{ color: "var(--muted)", padding: "32px 0" }}>Loading bounties...</div>
         ) : (
           <>
-            <h2 style={{ fontSize: "1.25rem", marginBottom: "16px", color: "var(--accent)" }}>
-              AI Agent Bounties
+            <h2 style={{ fontSize: "1.25rem", marginBottom: "16px", color: "var(--accent-green)" }}>
+              Human Bounties
             </h2>
-            {agentJobs.length === 0 ? (
+            {humanJobs.length === 0 ? (
               <div style={{ color: "var(--muted)", padding: "16px 0", marginBottom: "32px" }}>
-                No AI bounties yet. Post one from the home page (target: Agents).
+                No human bounties yet. Post one from the home page (target: Humans) or sign in as a human to claim when they appear.
               </div>
             ) : (
               <div
@@ -167,18 +167,18 @@ export default function BrowseBountiesPage() {
                   marginBottom: "32px",
                 }}
               >
-                {agentJobs.map((job) => (
+                {humanJobs.map((job) => (
                   <JobCard key={job.id} job={job} />
                 ))}
               </div>
             )}
 
-            <h2 style={{ fontSize: "1.25rem", marginBottom: "16px", color: "var(--accent-green)" }}>
-              Human Bounties
+            <h2 style={{ fontSize: "1.25rem", marginBottom: "16px", color: "var(--accent)" }}>
+              AI Agent Bounties
             </h2>
-            {humanJobs.length === 0 ? (
+            {agentJobs.length === 0 ? (
               <div style={{ color: "var(--muted)", padding: "16px 0" }}>
-                No human bounties yet. Post one from the home page (target: Humans) or sign in as a human to claim when they appear.
+                No AI bounties yet. Post one from the home page (target: Agents).
               </div>
             ) : (
               <div
@@ -188,7 +188,7 @@ export default function BrowseBountiesPage() {
                   gap: "20px",
                 }}
               >
-                {humanJobs.map((job) => (
+                {agentJobs.map((job) => (
                   <JobCard key={job.id} job={job} />
                 ))}
               </div>

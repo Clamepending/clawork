@@ -249,6 +249,23 @@ export async function initTursoSchema() {
   } catch (e: any) {
     if (!e.message?.includes("already exists")) console.error(e.message);
   }
+  try {
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS human_balances (
+        human_id INTEGER NOT NULL,
+        chain TEXT NOT NULL,
+        verified_balance REAL NOT NULL DEFAULT 0.0,
+        pending_balance REAL NOT NULL DEFAULT 0.0,
+        balance REAL NOT NULL DEFAULT 0.0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (human_id, chain),
+        FOREIGN KEY (human_id) REFERENCES humans(id)
+      )
+    `);
+  } catch (e: any) {
+    if (!e.message?.includes("already exists")) console.error(e.message);
+  }
 }
 
 // Generate secure private ID
@@ -491,6 +508,115 @@ export async function getLinkedHumanWalletTurso(humanId: number, chain: string):
     args: [humanId, chain.trim().toLowerCase()],
   });
   return rowToObject(result.rows[0]) as { wallet_address: string } | undefined;
+}
+
+export async function getHumanBalancesTurso(humanId: number, chain: string): Promise<{ balance: number; pending_balance: number; verified_balance: number }> {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  const result = await client.execute({
+    sql: "SELECT balance, pending_balance, verified_balance FROM human_balances WHERE human_id = ? AND chain = ?",
+    args: [humanId, chain.trim().toLowerCase()],
+  });
+  const row = rowToObject(result.rows[0]) as { balance: number; pending_balance: number; verified_balance: number } | undefined;
+  return row ?? { balance: 0, pending_balance: 0, verified_balance: 0 };
+}
+
+export async function ensureHumanBalanceRowTurso(humanId: number, chain: string): Promise<void> {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  const existing = await client.execute({
+    sql: "SELECT 1 FROM human_balances WHERE human_id = ? AND chain = ?",
+    args: [humanId, chain.trim().toLowerCase()],
+  });
+  if (existing.rows.length === 0) {
+    const now = new Date().toISOString();
+    await client.execute({
+      sql: `INSERT INTO human_balances (human_id, chain, verified_balance, pending_balance, balance, created_at, updated_at)
+       VALUES (?, ?, 0.0, 0.0, 0.0, ?, ?)`,
+      args: [humanId, chain.trim().toLowerCase(), now, now],
+    });
+  }
+}
+
+export async function creditHumanPendingTurso(humanId: number, chain: string, amount: number): Promise<void> {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  await ensureHumanBalanceRowTurso(humanId, chain);
+  const row = await getHumanBalancesTurso(humanId, chain);
+  const newPending = row.pending_balance + amount;
+  const newBalance = row.balance + amount;
+  const now = new Date().toISOString();
+  await client.execute({
+    sql: "UPDATE human_balances SET pending_balance = ?, balance = ?, updated_at = ? WHERE human_id = ? AND chain = ?",
+    args: [newPending, newBalance, now, humanId, chain.trim().toLowerCase()],
+  });
+}
+
+export async function moveHumanPendingToVerifiedTurso(humanId: number, chain: string, amount: number): Promise<void> {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  await ensureHumanBalanceRowTurso(humanId, chain);
+  const row = await getHumanBalancesTurso(humanId, chain);
+  const newPending = Math.max(0, row.pending_balance - amount);
+  const newVerified = row.verified_balance + amount;
+  const newBalance = newPending + newVerified;
+  const now = new Date().toISOString();
+  await client.execute({
+    sql: "UPDATE human_balances SET pending_balance = ?, verified_balance = ?, balance = ?, updated_at = ? WHERE human_id = ? AND chain = ?",
+    args: [newPending, newVerified, newBalance, now, humanId, chain.trim().toLowerCase()],
+  });
+}
+
+export async function processHumanWithdrawalTurso(humanId: number, chain: string, amount: number): Promise<{ success: boolean; error?: string }> {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  await ensureHumanBalanceRowTurso(humanId, chain);
+  const row = await getHumanBalancesTurso(humanId, chain);
+  if (row.verified_balance < amount) {
+    return { success: false, error: `Insufficient verified balance. Available: ${row.verified_balance}, Requested: ${amount}` };
+  }
+  const newVerified = row.verified_balance - amount;
+  const newBalance = newVerified + (row.balance - row.verified_balance);
+  const now = new Date().toISOString();
+  await client.execute({
+    sql: "UPDATE human_balances SET verified_balance = ?, balance = ?, updated_at = ? WHERE human_id = ? AND chain = ?",
+    args: [newVerified, newBalance, now, humanId, chain.trim().toLowerCase()],
+  });
+  return { success: true };
+}
+
+export async function listAllAgentsTurso(limit?: number): Promise<AgentRecord[]> {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  if (limit) {
+    const result = await client.execute({
+      sql: "SELECT * FROM agents ORDER BY created_at DESC LIMIT ?",
+      args: [limit],
+    });
+    return rowsToObjects(result.rows) as AgentRecord[];
+  }
+  const result = await client.execute({
+    sql: "SELECT * FROM agents ORDER BY created_at DESC",
+    args: [],
+  });
+  return rowsToObjects(result.rows) as AgentRecord[];
+}
+
+export async function listAllHumansTurso(limit?: number, availableOnly?: boolean): Promise<HumanRecord[]> {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  let sql = "SELECT * FROM humans";
+  if (availableOnly) {
+    sql += " WHERE available = 1";
+  }
+  sql += " ORDER BY created_at DESC";
+  if (limit) {
+    sql += " LIMIT ?";
+    const result = await client.execute({ sql, args: [limit] });
+    return rowsToObjects(result.rows) as HumanRecord[];
+  }
+  const result = await client.execute({ sql, args: [] });
+  return rowsToObjects(result.rows) as HumanRecord[];
 }
 
 export async function getAgentBalancesTurso(agentId: number, chain: string): Promise<{ balance: number; pending_balance: number; verified_balance: number }> {
@@ -967,7 +1093,9 @@ export async function createSubmissionTurso(params: {
 
   const submissionId = Number(result.lastInsertRowid);
 
-  if (agentId != null) {
+  if (humanId != null && params.jobAmount > 0) {
+    await creditHumanPendingTurso(humanId, params.chain, params.jobAmount);
+  } else if (agentId != null) {
     await creditAgentPendingTurso(agentId, params.chain, params.jobAmount);
   } else {
     const deposit = await getDepositTurso(params.agentWallet, params.chain);
@@ -1039,11 +1167,30 @@ export async function updateSubmissionRatingTurso(
   });
 
   const subRow = await client.execute({
-    sql: "SELECT agent_id FROM submissions WHERE id = ?",
+    sql: "SELECT agent_id, human_id FROM submissions WHERE id = ?",
     args: [submissionId],
   });
-  const sub = rowToObject(subRow.rows[0]) as { agent_id: number | null } | undefined;
+  const sub = rowToObject(subRow.rows[0]) as { agent_id: number | null; human_id: number | null } | undefined;
   const agentId = sub?.agent_id ?? null;
+  const humanId = sub?.human_id ?? null;
+
+  if (humanId != null && jobAmount > 0) {
+    if (rating >= 2) {
+      await moveHumanPendingToVerifiedTurso(humanId, chain, jobAmount);
+    } else {
+      // For humans, if rating < 2, we still need to deduct pending but don't move to verified
+      await ensureHumanBalanceRowTurso(humanId, chain);
+      const row = await getHumanBalancesTurso(humanId, chain);
+      const newPending = Math.max(0, row.pending_balance - jobAmount);
+      const newBalance = row.balance - jobAmount;
+      const now = new Date().toISOString();
+      await client.execute({
+        sql: "UPDATE human_balances SET pending_balance = ?, balance = ?, updated_at = ? WHERE human_id = ? AND chain = ?",
+        args: [newPending, newBalance, now, humanId, chain.trim().toLowerCase()],
+      });
+    }
+    return;
+  }
 
   if (agentId != null) {
     if (rating >= 2) {
@@ -1256,6 +1403,62 @@ export async function getAgentRatingsByUsernameTurso(usernameLower: string) {
       1: ratings.filter(r => r === 1).length,
     },
   };
+}
+
+export async function getHumanRatingsByHumanIdTurso(humanId: number) {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  const result = await client.execute({
+    sql: "SELECT rating, created_at FROM submissions WHERE human_id = ? AND rating IS NOT NULL AND rating > 0 ORDER BY created_at DESC",
+    args: [humanId],
+  });
+  const submissions = rowsToObjects(result.rows) as { rating: number; created_at: string }[];
+  const ratings = submissions.map(s => s.rating);
+  const rawAverage = ratings.length > 0 ? ratings.reduce((sum, r) => sum + r, 0) / ratings.length : null;
+  return {
+    ratings,
+    average: roundAverageRating(rawAverage),
+    total_rated: ratings.length,
+    breakdown: {
+      5: ratings.filter(r => r === 5).length,
+      4: ratings.filter(r => r === 4).length,
+      3: ratings.filter(r => r === 3).length,
+      2: ratings.filter(r => r === 2).length,
+      1: ratings.filter(r => r === 1).length,
+    },
+  };
+}
+
+export async function listHumanSubmissionsByHumanIdTurso(humanId: number): Promise<Array<{
+  submission_id: number;
+  job_id: number;
+  description: string;
+  amount: number;
+  chain: string;
+  job_status: string;
+  rating: number | null;
+  created_at: string;
+}>> {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  const result = await client.execute({
+    sql: `SELECT s.id as submission_id, j.id as job_id, j.description, j.amount, j.chain, j.status as job_status, s.rating, s.created_at
+       FROM submissions s
+       JOIN jobs j ON s.job_id = j.id
+       WHERE s.human_id = ?
+       ORDER BY s.created_at DESC`,
+    args: [humanId],
+  });
+  return rowsToObjects(result.rows) as Array<{
+    submission_id: number;
+    job_id: number;
+    description: string;
+    amount: number;
+    chain: string;
+    job_status: string;
+    rating: number | null;
+    created_at: string;
+  }>;
 }
 
 export type TopAgentRow = {
@@ -1653,12 +1856,17 @@ export async function checkAndApplyLateRatingPenaltiesTurso() {
   if (!client) throw new Error("Turso client not initialized");
 
   const now = new Date().toISOString();
+  // For humans: include submissions that are past deadline AND (not rated OR rated < 2)
+  // This ensures humans get auto-verified after 24 hours even if rated < 2 stars
   const result = await client.execute({
     sql: `
-      SELECT s.id, s.job_id, s.agent_wallet, s.agent_id, s.rating_deadline, j.chain, j.poster_wallet, j.amount
+      SELECT s.id, s.job_id, s.agent_wallet, s.agent_id, s.human_id, s.rating_deadline, s.rating, j.chain, j.poster_wallet, j.amount
       FROM submissions s
       JOIN jobs j ON s.job_id = j.id
-      WHERE s.rating IS NULL AND s.rating_deadline < ?
+      WHERE s.rating_deadline < ? AND (
+        (s.rating IS NULL) OR 
+        (s.human_id IS NOT NULL AND s.rating < 2)
+      )
     `,
     args: [now],
   });
@@ -1668,7 +1876,9 @@ export async function checkAndApplyLateRatingPenaltiesTurso() {
     job_id: number;
     agent_wallet: string;
     agent_id: number | null;
+    human_id: number | null;
     rating_deadline: string;
+    rating: number | null;
     chain: string;
     poster_wallet: string | null;
     amount: number;
@@ -1676,7 +1886,25 @@ export async function checkAndApplyLateRatingPenaltiesTurso() {
 
   for (const sub of lateSubmissions) {
     if (sub.amount > 0) {
-      if (sub.agent_id != null) {
+      if (sub.human_id != null) {
+        // For humans: automatically move pending to verified after 24 hours
+        // This applies even if rated < 2 stars (we restore the deducted amount)
+        const humanBalances = await getHumanBalancesTurso(sub.human_id, sub.chain);
+        const pendingToMove = Math.min(humanBalances.pending_balance, sub.amount);
+        const amountToAdd = sub.amount; // Always add the full amount to verified
+        
+        // Deduct from pending (may be less than amount if already deducted)
+        const newPending = Math.max(0, humanBalances.pending_balance - sub.amount);
+        // Add full amount to verified (restores if it was deducted)
+        const newVerified = humanBalances.verified_balance + amountToAdd;
+        // Adjust total balance: subtract what we removed from pending, add to verified
+        const newBalance = humanBalances.balance - pendingToMove + amountToAdd;
+        const now = new Date().toISOString();
+        await client.execute({
+          sql: "UPDATE human_balances SET pending_balance = ?, verified_balance = ?, balance = ?, updated_at = ? WHERE human_id = ? AND chain = ?",
+          args: [newPending, newVerified, newBalance, now, sub.human_id, sub.chain.trim().toLowerCase()],
+        });
+      } else if (sub.agent_id != null) {
         await moveAgentPendingToVerifiedTurso(sub.agent_id, sub.chain, sub.amount);
       } else {
         const agentDeposit = await getDepositTurso(sub.agent_wallet, sub.chain);
@@ -1691,10 +1919,13 @@ export async function checkAndApplyLateRatingPenaltiesTurso() {
         }
       }
     }
-    await client.execute({
-      sql: "UPDATE submissions SET rating = 0 WHERE id = ?",
-      args: [sub.id],
-    });
+    // Mark as auto-verified (rating = 0) if not already rated
+    if (sub.rating === null) {
+      await client.execute({
+        sql: "UPDATE submissions SET rating = 0 WHERE id = ?",
+        args: [sub.id],
+      });
+    }
   }
 
   return lateSubmissions.length;

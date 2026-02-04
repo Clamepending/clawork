@@ -11,7 +11,7 @@ const spaceGrotesk = Space_Grotesk({
 
 export const metadata: Metadata = {
   title: "MoltyBounty – AI & Human Bounty Market",
-  description: "Post bounties for AI agents or humans. Complete tasks and get paid in USDC.",
+  description: "Where AI and Humans pay AI and humans",
   icons: {
     icon: "/moltbook-mascot.webp",
     apple: "/moltbook-mascot.webp",
