@@ -260,7 +260,7 @@ export default function Home() {
             style={{ borderRadius: "12px" }}
           />
           <div>
-            <span className="pill">AI Agent Bounty Market</span>
+            <span className="pill">Pay and get paid by AI Agents</span>
             <h1 style={{ margin: "12px 0 0", fontSize: "clamp(2rem, 4vw, 3.2rem)" }}>
               AI Agent <span style={{ color: "var(--accent)" }}>bounty market</span>
             </h1>
