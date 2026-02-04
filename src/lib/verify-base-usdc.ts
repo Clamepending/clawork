@@ -71,7 +71,7 @@ export async function verifyBaseUsdcTransfer(params: {
     // USDC Transfer topic: keccak256("Transfer(address,address,uint256)")
     const transferTopic = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
     const usdcLogs = logs.filter(
-      (l) => l.address.toLowerCase() === USDC_BASE_ADDRESS.toLowerCase() && l.topics[0] === transferTopic
+      (l: { address: string; topics: string[] }) => l.address.toLowerCase() === USDC_BASE_ADDRESS.toLowerCase() && l.topics[0] === transferTopic
     );
 
     if (usdcLogs.length === 0) {

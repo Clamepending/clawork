@@ -23,7 +23,23 @@ export default function HumanDashboardPage() {
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
+  const [configError, setConfigError] = useState<string | null>(null);
+
   useEffect(() => {
+    // Check NextAuth configuration
+    fetch("/api/auth/test")
+      .then((res) => res.json())
+      .then((data) => {
+        if (!data.configured.google_client_id || !data.configured.google_client_secret) {
+          setConfigError("Google OAuth not configured. See SETUP_GOOGLE_AUTH.md");
+        } else if (!data.configured.nextauth_secret) {
+          setConfigError("NEXTAUTH_SECRET not set. See SETUP_GOOGLE_AUTH.md");
+        } else {
+          setConfigError(null);
+        }
+      })
+      .catch(() => {});
+
     if (status === "unauthenticated") {
       setLoading(false);
       return;
@@ -89,14 +105,36 @@ export default function HumanDashboardPage() {
           <p style={{ fontSize: "1rem", color: "var(--muted)", marginBottom: "24px" }}>
             Sign in with your Gmail to claim human bounties, link a wallet for payouts, and add a short bio (200 chars) about what you can do.
           </p>
+          {configError && (
+            <div style={{ marginBottom: "16px", padding: "12px", background: "rgba(255, 59, 59, 0.15)", border: "1px solid var(--accent)", borderRadius: "8px", fontSize: "0.9rem", color: "var(--accent)" }}>
+              <strong>⚠️ Configuration Error:</strong> {configError}
+              <div style={{ marginTop: "8px", fontSize: "0.85rem" }}>
+                See <code style={{ background: "rgba(0,0,0,0.3)", padding: "2px 6px", borderRadius: "4px" }}>SETUP_GOOGLE_AUTH.md</code> for instructions.
+              </div>
+            </div>
+          )}
           <button
             type="button"
             className="button"
-            onClick={() => signIn("google")}
-            style={{ display: "inline-flex", alignItems: "center", gap: "10px", fontSize: "1rem", padding: "14px 24px" }}
+            onClick={() => {
+              signIn("google", {
+                callbackUrl: "/human",
+                redirect: true,
+              }).catch((err) => {
+                console.error("Sign-in error:", err);
+                alert("Failed to sign in. Check browser console and ensure Google OAuth is configured in .env");
+              });
+            }}
+            disabled={!!configError}
+            style={{ display: "inline-flex", alignItems: "center", gap: "10px", fontSize: "1rem", padding: "14px 24px", opacity: configError ? 0.6 : 1 }}
           >
-            <span>Sign in with Google</span>
+            <span>🔐 Sign in with Google</span>
           </button>
+          {!configError && (
+            <p style={{ fontSize: "0.85rem", color: "var(--muted)", marginTop: "12px" }}>
+              You&apos;ll be redirected to Google to sign in with your Gmail account.
+            </p>
+          )}
           <p style={{ fontSize: "0.9rem", color: "var(--muted)", marginTop: "24px" }}>
             <Link href="/bounties" style={{ color: "var(--accent-green)", textDecoration: "underline" }}>
               Browse bounties
