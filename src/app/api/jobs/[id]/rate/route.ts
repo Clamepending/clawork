@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getJob, getJobByPrivateId, getSubmission, getSubmissionByJobPrivateId, updateSubmissionRating, getWalletBalances, returnPosterCollateral, getAgentByUsername } from "@/lib/db";
+import { getJob, getJobByPrivateId, getSubmission, getSubmissionByJobPrivateId, updateSubmissionRating, getWalletBalances, returnPosterCollateral, getAgentByUsername, RATING_IMMUTABLE_ERROR } from "@/lib/db";
 import { verifyPrivateKey } from "@/lib/agent-auth";
 
 function badRequest(message: string) {
@@ -67,6 +67,14 @@ export async function POST(
     );
   }
 
+  // Ratings are immutable once submitted (including auto-verified rating 0)
+  if (submission.rating !== null) {
+    return NextResponse.json(
+      { error: "This submission has already been rated. Ratings are immutable and cannot be changed." },
+      { status: 409 }
+    );
+  }
+
   const isFreeTask = job.amount === 0 && job.poster_wallet == null && !job.poster_username;
 
   // Check for late rating (only relevant for paid jobs with poster)
@@ -75,7 +83,17 @@ export async function POST(
   const isLate = deadline ? now > deadline : false;
   const hoursLate = isLate && deadline ? Math.floor((now.getTime() - deadline.getTime()) / (1000 * 60 * 60)) : 0;
 
-  await updateSubmissionRating(submission.id, rating, job.amount, submission.agent_wallet, job.chain, job.poster_wallet);
+  try {
+    await updateSubmissionRating(submission.id, rating, job.amount, submission.agent_wallet, job.chain, job.poster_wallet);
+  } catch (err) {
+    if (err instanceof Error && err.message === RATING_IMMUTABLE_ERROR) {
+      return NextResponse.json(
+        { error: "This submission has already been rated. Ratings are immutable and cannot be changed." },
+        { status: 409 }
+      );
+    }
+    throw err;
+  }
 
   let collateralReturned = false;
   if (!isFreeTask && !isLate) {

@@ -696,6 +696,16 @@ export async function updateSubmissionRatingTurso(
   const client = getTursoClient();
   if (!client) throw new Error("Turso client not initialized");
 
+  const existing = await client.execute({
+    sql: "SELECT rating FROM submissions WHERE id = ?",
+    args: [submissionId],
+  });
+  const row = rowToObject(existing.rows[0]) as { rating: number | null } | undefined;
+  const currentRating = row?.rating;
+  if (currentRating !== null && currentRating !== undefined) {
+    throw new Error("Submission already rated; ratings are immutable.");
+  }
+
   await client.execute({
     sql: "UPDATE submissions SET rating = ? WHERE id = ?",
     args: [rating, submissionId],
@@ -801,6 +811,17 @@ export async function getAgentRatingsTurso(agentWallet: string) {
   };
 }
 
+export async function getAgentSubmissionCountByAgentIdTurso(agentId: number): Promise<number> {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  const result = await client.execute({
+    sql: "SELECT COUNT(*) as count FROM submissions WHERE agent_id = ?",
+    args: [agentId],
+  });
+  const row = result.rows[0] as { count?: number } | undefined;
+  return row?.count ?? 0;
+}
+
 export async function getAgentSubmissionCountByUsernameTurso(usernameLower: string): Promise<number> {
   const client = getTursoClient();
   if (!client) throw new Error("Turso client not initialized");
@@ -810,6 +831,29 @@ export async function getAgentSubmissionCountByUsernameTurso(usernameLower: stri
   });
   const row = result.rows[0] as { count?: number } | undefined;
   return row?.count ?? 0;
+}
+
+export async function listAgentSubmissionsByAgentIdTurso(agentId: number) {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  const result = await client.execute({
+    sql: `SELECT s.id AS submission_id, s.job_id, j.description, j.amount, j.chain, j.status AS job_status, s.rating, s.created_at
+          FROM submissions s
+          JOIN jobs j ON j.id = s.job_id
+          WHERE s.agent_id = ?
+          ORDER BY s.created_at DESC`,
+    args: [agentId],
+  });
+  return rowsToObjects(result.rows) as Array<{
+    submission_id: number;
+    job_id: number;
+    description: string;
+    amount: number;
+    chain: string;
+    job_status: string;
+    rating: number | null;
+    created_at: string;
+  }>;
 }
 
 export async function listAgentSubmissionsByUsernameTurso(usernameLower: string) {
@@ -835,6 +879,34 @@ export async function listAgentSubmissionsByUsernameTurso(usernameLower: string)
   }>;
 }
 
+function roundAverageRating(avg: number | null): number | null {
+  return avg != null ? Math.round(avg * 100) / 100 : null;
+}
+
+export async function getAgentRatingsByAgentIdTurso(agentId: number) {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  const result = await client.execute({
+    sql: "SELECT rating, created_at FROM submissions WHERE agent_id = ? AND rating IS NOT NULL AND rating > 0 ORDER BY created_at DESC",
+    args: [agentId],
+  });
+  const submissions = rowsToObjects(result.rows) as { rating: number; created_at: string }[];
+  const ratings = submissions.map(s => s.rating);
+  const rawAverage = ratings.length > 0 ? ratings.reduce((sum, r) => sum + r, 0) / ratings.length : null;
+  return {
+    ratings,
+    average: roundAverageRating(rawAverage),
+    total_rated: ratings.length,
+    breakdown: {
+      5: ratings.filter(r => r === 5).length,
+      4: ratings.filter(r => r === 4).length,
+      3: ratings.filter(r => r === 3).length,
+      2: ratings.filter(r => r === 2).length,
+      1: ratings.filter(r => r === 1).length,
+    },
+  };
+}
+
 export async function getAgentRatingsByUsernameTurso(usernameLower: string) {
   const client = getTursoClient();
   if (!client) throw new Error("Turso client not initialized");
@@ -844,10 +916,10 @@ export async function getAgentRatingsByUsernameTurso(usernameLower: string) {
   });
   const submissions = rowsToObjects(result.rows) as { rating: number; created_at: string }[];
   const ratings = submissions.map(s => s.rating);
-  const average = ratings.length > 0 ? ratings.reduce((sum, r) => sum + r, 0) / ratings.length : null;
+  const rawAverage = ratings.length > 0 ? ratings.reduce((sum, r) => sum + r, 0) / ratings.length : null;
   return {
     ratings,
-    average,
+    average: roundAverageRating(rawAverage),
     total_rated: ratings.length,
     breakdown: {
       5: ratings.filter(r => r === 5).length,

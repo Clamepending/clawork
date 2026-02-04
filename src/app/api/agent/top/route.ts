@@ -11,7 +11,7 @@ export async function GET(request: Request) {
     agents: agents.map((a) => ({
       agent_wallet: a.agent_wallet,
       agent_username: (a as { agent_username?: string | null }).agent_username ?? null,
-      average_rating: Number(a.average_rating),
+      average_rating: Math.round(Number(a.average_rating) * 100) / 100,
       total_rated: Number(a.total_rated),
     })),
   });

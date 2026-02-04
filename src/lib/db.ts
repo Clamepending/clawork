@@ -882,6 +882,17 @@ export async function getAgentRatings(agentWallet: string) {
   };
 }
 
+export async function getAgentSubmissionCountByAgentId(agentId: number): Promise<number> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.getAgentSubmissionCountByAgentIdTurso(agentId);
+  }
+  const row = db!
+    .prepare("SELECT COUNT(*) as count FROM submissions WHERE agent_id = ?")
+    .get(agentId) as { count: number };
+  return row?.count ?? 0;
+}
+
 export async function getAgentSubmissionCountByUsername(usernameLower: string): Promise<number> {
   if (usingTurso) {
     const turso = await getTurso();
@@ -891,6 +902,22 @@ export async function getAgentSubmissionCountByUsername(usernameLower: string): 
     .prepare("SELECT COUNT(*) as count FROM submissions WHERE agent_username IS NOT NULL AND LOWER(agent_username) = ?")
     .get(usernameLower) as { count: number };
   return row?.count ?? 0;
+}
+
+export async function listAgentSubmissionsByAgentId(agentId: number): Promise<AgentSubmissionRow[]> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.listAgentSubmissionsByAgentIdTurso(agentId);
+  }
+  return db!
+    .prepare(
+      `SELECT s.id AS submission_id, s.job_id, j.description, j.amount, j.chain, j.status AS job_status, s.rating, s.created_at
+       FROM submissions s
+       JOIN jobs j ON j.id = s.job_id
+       WHERE s.agent_id = ?
+       ORDER BY s.created_at DESC`
+    )
+    .all(agentId) as AgentSubmissionRow[];
 }
 
 export async function listAgentSubmissionsByUsername(usernameLower: string): Promise<AgentSubmissionRow[]> {
@@ -909,6 +936,34 @@ export async function listAgentSubmissionsByUsername(usernameLower: string): Pro
     .all(usernameLower) as AgentSubmissionRow[];
 }
 
+function roundAverageRating(avg: number | null): number | null {
+  return avg != null ? Math.round(avg * 100) / 100 : null;
+}
+
+export async function getAgentRatingsByAgentId(agentId: number) {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.getAgentRatingsByAgentIdTurso(agentId);
+  }
+  const submissions = db!
+    .prepare("SELECT rating, created_at FROM submissions WHERE agent_id = ? AND rating IS NOT NULL AND rating > 0 ORDER BY created_at DESC")
+    .all(agentId) as { rating: number; created_at: string }[];
+  const ratings = submissions.map(s => s.rating);
+  const rawAverage = ratings.length > 0 ? ratings.reduce((sum, r) => sum + r, 0) / ratings.length : null;
+  return {
+    ratings,
+    average: roundAverageRating(rawAverage),
+    total_rated: ratings.length,
+    breakdown: {
+      5: ratings.filter(r => r === 5).length,
+      4: ratings.filter(r => r === 4).length,
+      3: ratings.filter(r => r === 3).length,
+      2: ratings.filter(r => r === 2).length,
+      1: ratings.filter(r => r === 1).length,
+    },
+  };
+}
+
 export async function getAgentRatingsByUsername(usernameLower: string) {
   if (usingTurso) {
     const turso = await getTurso();
@@ -918,10 +973,10 @@ export async function getAgentRatingsByUsername(usernameLower: string) {
     .prepare("SELECT rating, created_at FROM submissions WHERE agent_username IS NOT NULL AND LOWER(agent_username) = ? AND rating IS NOT NULL AND rating > 0 ORDER BY created_at DESC")
     .all(usernameLower) as { rating: number; created_at: string }[];
   const ratings = submissions.map(s => s.rating);
-  const average = ratings.length > 0 ? ratings.reduce((sum, r) => sum + r, 0) / ratings.length : null;
+  const rawAverage = ratings.length > 0 ? ratings.reduce((sum, r) => sum + r, 0) / ratings.length : null;
   return {
     ratings,
-    average,
+    average: roundAverageRating(rawAverage),
     total_rated: ratings.length,
     breakdown: {
       5: ratings.filter(r => r === 5).length,
@@ -1000,10 +1055,16 @@ export async function getSubmissionByJobPrivateId(privateId: string) {
   return await getSubmission(job.id);
 }
 
+export const RATING_IMMUTABLE_ERROR = "Submission already rated; ratings are immutable.";
+
 export async function updateSubmissionRating(submissionId: number, rating: number, jobAmount: number, agentWallet: string, chain: string, posterWallet: string | null) {
   if (usingTurso) {
     const turso = await getTurso();
     return turso.updateSubmissionRatingTurso(submissionId, rating, jobAmount, agentWallet, chain, posterWallet);
+  }
+  const row = db!.prepare("SELECT rating FROM submissions WHERE id = ?").get(submissionId) as { rating: number | null } | undefined;
+  if (row?.rating !== null && row?.rating !== undefined) {
+    throw new Error(RATING_IMMUTABLE_ERROR);
   }
   const stmt = db!.prepare("UPDATE submissions SET rating = ? WHERE id = ?");
   stmt.run(rating, submissionId);

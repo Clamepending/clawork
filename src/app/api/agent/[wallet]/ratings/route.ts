@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getAgentRatingsByUsername, getAgentSubmissionCountByUsername, getAgentByUsername } from "@/lib/db";
+import { getAgentRatingsByAgentId, getAgentSubmissionCountByAgentId, getAgentByUsername } from "@/lib/db";
 
 export async function GET(
   request: Request,
@@ -16,9 +16,10 @@ export async function GET(
     return NextResponse.json({ error: "No account found for this username." }, { status: 404 });
   }
 
+  // Use agent_id so ratings and submission count are consistent and complete
   const [ratings, total_submissions] = await Promise.all([
-    getAgentRatingsByUsername(usernameLower),
-    getAgentSubmissionCountByUsername(usernameLower),
+    getAgentRatingsByAgentId(agent.id),
+    getAgentSubmissionCountByAgentId(agent.id),
   ]);
 
   return NextResponse.json({

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { listAgentSubmissionsByUsername, getAgentByUsername } from "@/lib/db";
+import { listAgentSubmissionsByAgentId, getAgentByUsername } from "@/lib/db";
 
 export async function GET(
   request: Request,
@@ -16,7 +16,7 @@ export async function GET(
     return NextResponse.json({ error: "No account found for this username." }, { status: 404 });
   }
 
-  const submissions = await listAgentSubmissionsByUsername(usernameLower);
+  const submissions = await listAgentSubmissionsByAgentId(agent.id);
   return NextResponse.json({
     username: agent.username_display,
     wallet_address: null,
