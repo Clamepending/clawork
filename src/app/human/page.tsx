@@ -639,6 +639,9 @@ export default function HumanDashboardPage() {
                   {balances && balances.verified_balance > 0 && (
                     <div style={{ marginBottom: "16px", padding: "12px", background: "rgba(255,255,255,0.04)", borderRadius: "8px", border: "1px solid var(--card-border)" }}>
                       <div style={{ fontSize: "0.85rem", color: "var(--muted)", marginBottom: "8px", fontWeight: 600 }}>Withdraw</div>
+                      <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "12px", fontStyle: "italic" }}>
+                        Note: Gas fees for sending crypto will be deducted from the master wallet, not your balance.
+                      </div>
                       <input
                         type="number"
                         value={withdrawAmount}
