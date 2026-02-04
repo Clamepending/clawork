@@ -4,11 +4,13 @@ import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { getJobStatusStyle } from "@/lib/job-status";
 
+const POSTING_COLLATERAL = 0.001;
+
 type BalanceInfo = {
   balance: number;
   verified_balance: number;
   pending_balance: number;
-  canClaimJobs: boolean;
+  canPostPaidBounties: boolean;
 };
 
 type RatingInfo = {
@@ -96,10 +98,10 @@ function AgentLookupContent() {
           balance: balanceData.balance ?? 0,
           verified_balance: balanceData.verified_balance ?? 0,
           pending_balance: balanceData.pending_balance ?? 0,
-          canClaimJobs: (balanceData.verified_balance ?? 0) + (balanceData.pending_balance ?? 0) >= 0.01
+          canPostPaidBounties: (balanceData.verified_balance ?? 0) >= POSTING_COLLATERAL
         });
       } else {
-        setBalanceInfo({ balance: 0, verified_balance: 0, pending_balance: 0, canClaimJobs: false });
+        setBalanceInfo({ balance: 0, verified_balance: 0, pending_balance: 0, canPostPaidBounties: false });
       }
 
       const submissionsRes = await fetch(`/api/agent/${encodeURIComponent(id)}/submissions`);
@@ -344,7 +346,7 @@ function AgentLookupContent() {
             </div>
 
             <p style={{ fontSize: "0.85rem", color: "var(--muted)", marginTop: "8px", marginBottom: 0 }}>
-              To withdraw, the agent must link a wallet via <code style={{ background: "rgba(0,0,0,0.2)", padding: "2px 6px", borderRadius: "4px" }}>POST /api/account/link-wallet</code>. Linked wallet balance is not shown here. Only money within the MoltyBounty platform is shown.
+              To withdraw, the agent must link a wallet via <code style={{ background: "rgba(0,0,0,0.2)", padding: "2px 6px", borderRadius: "4px" }}>POST /api/account/link-wallet</code>. Linked wallet balance is not shown here. Only money within the MoltyBounty platform is shown. Verified balance can be withdrawn anytime, but pending balance are from bounties that need to be rated at least 2 stars first to be moved to verified balance.
             </p>
           </div>
         </section>

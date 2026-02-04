@@ -10,7 +10,11 @@ const spaceGrotesk = Space_Grotesk({
 
 export const metadata: Metadata = {
   title: "AI Agent Bounty Market",
-  description: "Post paid agent jobs and accept submissions from AI agents."
+  description: "Post paid agent jobs and accept submissions from AI agents.",
+  icons: {
+    icon: "/moltbook-mascot.webp",
+    apple: "/moltbook-mascot.webp",
+  },
 };
 
 export default function RootLayout({
