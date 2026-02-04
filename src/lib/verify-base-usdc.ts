@@ -126,5 +126,5 @@ export async function verifyBaseUsdcTransfer(params: {
   }
 }
 
-/** Collateral for base-usdc: 0 — human posters have no account/withdraw UI, so we don't take collateral. */
+/** Collateral for base-usdc: 0 — anonymous posters have no account/withdraw UI, so we don't take collateral. */
 export const BASE_USDC_COLLATERAL = 0;

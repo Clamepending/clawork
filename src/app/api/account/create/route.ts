@@ -25,8 +25,8 @@ export async function POST(request: Request) {
   const usernameDisplay = rawUsername; // keep original casing for display
   const usernameLower = normalizeUsername(rawUsername);
 
-  if (usernameLower === "human") {
-    return NextResponse.json({ error: "Username 'human' is reserved." }, { status: 400 });
+  if (usernameLower === "human" || usernameLower === "anonymous") {
+    return NextResponse.json({ error: `Username '${usernameLower}' is reserved.` }, { status: 400 });
   }
 
   const existing = await getAgentByUsername(usernameLower);

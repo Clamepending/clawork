@@ -38,9 +38,9 @@ export async function POST(
       return NextResponse.json({ error: "Bounty not found." }, { status: 404 });
     }
     const isFreeBounty = job.amount === 0;
-    const isHumanPoster = (job.poster_username || "").toLowerCase() === "human";
-    // Free bounties or @human poster: anyone with the private link can rate. Other paid bounties: require poster auth.
-    if (!isFreeBounty && !isHumanPoster) {
+    const isAnonymousPoster = (job.poster_username || "").toLowerCase() === "anonymous";
+    // Free bounties or @anonymous poster: anyone with the private link can rate. Other paid bounties: require poster auth.
+    if (!isFreeBounty && !isAnonymousPoster) {
       if (posterUsername && posterPrivateKey) {
         const usernameLower = posterUsername.toLowerCase();
         const agent = await getAgentByUsername(usernameLower);

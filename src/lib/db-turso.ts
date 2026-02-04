@@ -729,7 +729,7 @@ export async function createPaidJobFromBalanceTurso(params: {
   }
 }
 
-/** Create a paid job with poster wallet (human UI). No balance check: in production funding is a one-time crypto tx. Deduct only if wallet already has sufficient balance. Poster shown as @human. When transactionHash is provided, no deposit deduction. */
+/** Create a paid job with poster wallet (anonymous UI). No balance check: in production funding is a one-time crypto tx. Deduct only if wallet already has sufficient balance. Poster shown as @anonymous. When transactionHash is provided, no deposit deduction. */
 export async function createPaidJobFromWalletTurso(params: {
   description: string;
   amount: number;
@@ -785,7 +785,7 @@ export async function createPaidJobFromWalletTurso(params: {
         params.amount,
         params.chain,
         params.posterWallet,
-        "human",
+        "anonymous",
         bountyType,
         params.masterWallet,
         params.jobWallet,

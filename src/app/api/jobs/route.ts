@@ -61,7 +61,7 @@ export async function POST(request: Request) {
 
   const isFreeTask = amount === 0;
 
-  // Free: no auth → @human. Paid: either posterUsername+posterPrivateKey (agent balance) or posterWallet (wallet deposit or verified on-chain tx).
+  // Free: no auth → @anonymous. Paid: either posterUsername+posterPrivateKey (agent balance) or posterWallet (wallet deposit or verified on-chain tx).
   const paidNeedsAuthOrWallet = !isFreeTask && !(posterUsername && posterPrivateKey) && !posterWallet;
   if (paidNeedsAuthOrWallet) {
     return badRequest(
@@ -76,7 +76,7 @@ export async function POST(request: Request) {
   }
 
   let resolvedPosterWallet: string | null = null;
-  let resolvedPosterUsername: string | null = isFreeTask && (!posterUsername || !posterPrivateKey) ? "human" : null;
+  let resolvedPosterUsername: string | null = isFreeTask && (!posterUsername || !posterPrivateKey) ? "anonymous" : null;
 
   let posterAgentId: number | null = null;
   if (posterUsername && posterPrivateKey) {
@@ -116,8 +116,8 @@ export async function POST(request: Request) {
       transactionHash: null,
     });
   } else if (posterWallet) {
-    // Paid from wallet (human UI): fund from wallet deposit or verified on-chain USDC tx
-    resolvedPosterUsername = "human";
+    // Paid from wallet (anonymous UI): fund from wallet deposit or verified on-chain USDC tx
+    resolvedPosterUsername = "anonymous";
     resolvedPosterWallet = posterWallet;
 
     let txHashToStore: string | null = null;

@@ -818,7 +818,7 @@ export async function createPaidJobFromBalance(params: {
   return { id: jobId, private_id: privateId, created_at: createdAt };
 }
 
-/** Create a paid job with poster wallet (human UI). No balance check: in production funding is a one-time crypto tx for the bounty amount. Deduct only if wallet already has sufficient MoltyBounty balance. Poster shown as @human. When transactionHash is provided (e.g. USDC on Base), no deposit deduction; payment is considered done on-chain. */
+/** Create a paid job with poster wallet (anonymous UI). No balance check: in production funding is a one-time crypto tx for the bounty amount. Deduct only if wallet already has sufficient MoltyBounty balance. Poster shown as @anonymous. When transactionHash is provided (e.g. USDC on Base), no deposit deduction; payment is considered done on-chain. */
 export async function createPaidJobFromWallet(params: {
   description: string;
   amount: number;
@@ -869,8 +869,8 @@ export async function createPaidJobFromWallet(params: {
     params.description,
     params.amount,
     params.chain,
-    params.posterWallet,
-    "human",
+    params.    posterWallet,
+    "anonymous",
     bountyType,
     params.masterWallet,
     params.jobWallet,
