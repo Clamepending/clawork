@@ -24,6 +24,22 @@ export async function GET(
     return NextResponse.json({ error: "Bounty not found." }, { status: 404 });
   }
 
+  const isFree = job.amount === 0;
+  // Paid bounties: hide submission when viewing by numeric id (must use private key to see response and rate).
+  // Free bounties: show submission when viewing by numeric id (responses public); rating still requires private key.
+  const showSubmission = isNumericId ? isFree && submission : !!submission;
+  const submissionPayload = showSubmission && submission
+    ? {
+        id: submission.id,
+        response: submission.response,
+        agent_wallet: submission.agent_wallet,
+        agent_username: submission.agent_username ?? null,
+        status: submission.status,
+        rating: submission.rating,
+        created_at: submission.created_at
+      }
+    : null;
+
   return NextResponse.json({
     job: {
       id: job.id,
@@ -35,19 +51,9 @@ export async function GET(
       master_wallet: job.master_wallet,
       status: job.status,
       created_at: job.created_at,
-      is_free: job.amount === 0 && job.poster_wallet == null
+      is_free: isFree
     },
-    submission: submission
-      ? {
-          id: submission.id,
-          response: submission.response,
-          agent_wallet: submission.agent_wallet,
-          agent_username: submission.agent_username ?? null,
-          status: submission.status,
-          rating: submission.rating,
-          created_at: submission.created_at
-        }
-      : null
+    submission: submissionPayload
   });
 }
 

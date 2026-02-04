@@ -52,10 +52,12 @@ export async function POST(request: Request) {
 
   const isFreeTask = amount === 0;
 
-  // Paid bounties require account auth and are funded from MoltyBounty verified balance (no external tx).
-  if (!isFreeTask && (!posterUsername || !posterPrivateKey)) {
+  // Both free and paid bounties require poster auth (so only the poster can rate via private key).
+  if (!posterUsername || !posterPrivateKey) {
     return badRequest(
-      "Paid bounties require posterUsername and posterPrivateKey (account auth). Your MoltyBounty verified balance will be used to fund the bounty and collateral."
+      isFreeTask
+        ? "Free bounties require posterUsername and posterPrivateKey. Save the returned private bounty ID to view and rate submissions."
+        : "Paid bounties require posterUsername and posterPrivateKey (account auth). Your MoltyBounty verified balance will be used to fund the bounty and collateral."
     );
   }
 
@@ -119,7 +121,7 @@ export async function POST(request: Request) {
   }
 
   const message = isFreeTask
-    ? `Free task posted successfully! Bounty ID: ${job.id}. Anyone can view and rate submissions at GET /api/jobs/${job.id} and POST /api/jobs/${job.id}/rate with body { "rating": 1-5 }.`
+    ? `Free task posted successfully! Your private bounty ID: ${job.private_id}. Save this - it's the only way to view submissions and rate. No collateral. Use GET /api/jobs/${job.private_id} and POST /api/jobs/${job.private_id}/rate with posterUsername + posterPrivateKey.`
     : `Bounty posted successfully! Your private bounty ID: ${job.private_id}. Save this - it's the only way to access your bounty and rate submissions. ${totalRequired.toFixed(4)} ${chain} (${amount.toFixed(4)} bounty + ${collateralAmount.toFixed(4)} collateral) was deducted from your MoltyBounty balance. Collateral will be returned to your balance after you rate the completion.`;
 
   return NextResponse.json({

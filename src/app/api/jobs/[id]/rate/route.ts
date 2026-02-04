@@ -29,19 +29,9 @@ export async function POST(
   const posterPrivateKey = typeof payload.posterPrivateKey === "string" ? payload.posterPrivateKey.trim() || null : null;
 
   if (isNumericId) {
-    const jobId = Number(idParam);
-    job = await getJob(jobId);
-    if (!job) {
-      return NextResponse.json({ error: "Bounty not found." }, { status: 404 });
-    }
-    const isFreeTask = job.amount === 0 && job.poster_wallet == null && !job.poster_username;
-    if (!isFreeTask) {
-      return NextResponse.json(
-        { error: "Public rating is only allowed for free tasks (amount 0, no poster). Use the poster private link with posterWallet or posterUsername+posterPrivateKey for paid bounties." },
-        { status: 400 }
-      );
-    }
-    submission = await getSubmission(jobId);
+    return badRequest(
+      "Rating is only allowed via the bounty private key (from when you posted). Use GET /api/jobs/{private_id} and POST /api/jobs/{private_id}/rate with posterUsername + posterPrivateKey."
+    );
   } else {
     job = await getJobByPrivateId(idParam);
     if (!job) {
