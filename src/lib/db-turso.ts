@@ -511,7 +511,7 @@ export async function createPaidJobFromBalanceTurso(params: {
   }
 }
 
-/** Create a paid job funded from a wallet's deposit balance (human UI: no username, just wallet). Poster shown as @human. */
+/** Create a paid job with poster wallet (human UI). No balance check: in production funding is a one-time crypto tx. Deduct only if wallet already has sufficient balance. Poster shown as @human. */
 export async function createPaidJobFromWalletTurso(params: {
   description: string;
   amount: number;
@@ -525,34 +525,29 @@ export async function createPaidJobFromWalletTurso(params: {
   const collateralAmount = 0.001;
   const totalRequired = params.amount + collateralAmount;
   const deposit = await getDepositTurso(params.posterWallet, params.chain);
-  if (!deposit || (deposit as { verified_balance?: number }).verified_balance < totalRequired) {
-    return {
-      success: false,
-      error: `Insufficient wallet balance. Need ${totalRequired.toFixed(4)} ${params.chain} (bounty + collateral). Deposit first via the API or use a wallet that has sufficient verified balance.`,
-    };
-  }
-  const agent = await getAgentByWalletTurso(params.posterWallet, params.chain);
-  if (agent) {
-    const debitResult = await debitAgentVerifiedTurso(agent.id, params.chain, totalRequired);
-    if (!debitResult.success) return { success: false, error: debitResult.error! };
-  } else {
-    const rowResult = await client.execute({
-      sql: "SELECT verified_balance, balance FROM deposits WHERE wallet_address = ? AND chain = ?",
-      args: [params.posterWallet, params.chain],
-    });
-    const row = rowToObject(rowResult.rows[0]) as { verified_balance: number; balance: number } | undefined;
-    if (!row || row.verified_balance < totalRequired) {
-      return {
-        success: false,
-        error: `Insufficient wallet balance. Need ${totalRequired.toFixed(4)} ${params.chain} (bounty + collateral).`,
-      };
+  const verifiedBalance = (deposit as { verified_balance?: number } | undefined)?.verified_balance ?? 0;
+  const hasSufficient = verifiedBalance >= totalRequired;
+  let agent: Awaited<ReturnType<typeof getAgentByWalletTurso>> | undefined;
+  if (hasSufficient) {
+    agent = await getAgentByWalletTurso(params.posterWallet, params.chain);
+    if (agent) {
+      const debitResult = await debitAgentVerifiedTurso(agent.id, params.chain, totalRequired);
+      if (!debitResult.success) return { success: false, error: debitResult.error! };
+    } else {
+      const rowResult = await client.execute({
+        sql: "SELECT verified_balance, balance FROM deposits WHERE wallet_address = ? AND chain = ?",
+        args: [params.posterWallet, params.chain],
+      });
+      const row = rowToObject(rowResult.rows[0]) as { verified_balance: number; balance: number } | undefined;
+      if (row && row.verified_balance >= totalRequired) {
+        const newVerified = row.verified_balance - totalRequired;
+        const newBalance = row.balance - totalRequired;
+        await client.execute({
+          sql: "UPDATE deposits SET verified_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?",
+          args: [newVerified, newBalance, params.posterWallet, params.chain],
+        });
+      }
     }
-    const newVerified = row.verified_balance - totalRequired;
-    const newBalance = row.balance - totalRequired;
-    await client.execute({
-      sql: "UPDATE deposits SET verified_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?",
-      args: [newVerified, newBalance, params.posterWallet, params.chain],
-    });
   }
   const privateId = generatePrivateId();
   const totalPaid = totalRequired;
@@ -589,13 +584,15 @@ export async function createPaidJobFromWalletTurso(params: {
     });
     return { id: jobId, private_id: privateId, created_at: createdAt };
   } catch (e) {
-    if (agent) {
-      await creditAgentVerifiedTurso(agent.id, params.chain, totalRequired);
-    } else {
-      await client.execute({
-        sql: "UPDATE deposits SET verified_balance = verified_balance + ?, balance = balance + ? WHERE wallet_address = ? AND chain = ?",
-        args: [totalRequired, totalRequired, params.posterWallet, params.chain],
-      });
+    if (hasSufficient) {
+      if (agent) {
+        await creditAgentVerifiedTurso(agent.id, params.chain, totalRequired);
+      } else {
+        await client.execute({
+          sql: "UPDATE deposits SET verified_balance = verified_balance + ?, balance = balance + ? WHERE wallet_address = ? AND chain = ?",
+          args: [totalRequired, totalRequired, params.posterWallet, params.chain],
+        });
+      }
     }
     throw e;
   }

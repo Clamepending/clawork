@@ -593,7 +593,7 @@ export async function createPaidJobFromBalance(params: {
   return { id: jobId, private_id: privateId, created_at: createdAt };
 }
 
-/** Create a paid job funded from a wallet's deposit balance (e.g. human UI: no username, just wallet). Poster shown as @human. */
+/** Create a paid job with poster wallet (human UI). No balance check: in production funding is a one-time crypto tx for the bounty amount. Deduct only if wallet already has sufficient MoltyBounty balance. Poster shown as @human. */
 export async function createPaidJobFromWallet(params: {
   description: string;
   amount: number;
@@ -610,29 +610,22 @@ export async function createPaidJobFromWallet(params: {
   const collateralAmount = 0.001;
   const totalRequired = params.amount + collateralAmount;
   const deposit = await getDeposit(params.posterWallet, params.chain);
-  if (!deposit || deposit.verified_balance < totalRequired) {
-    return {
-      success: false,
-      error: `Insufficient wallet balance. Need ${totalRequired.toFixed(4)} ${params.chain} (bounty + collateral). Deposit first via the API or use a wallet that has sufficient verified balance.`,
-    };
-  }
-  const agent = await getAgentByWallet(params.posterWallet, params.chain);
-  if (agent) {
-    const debitResult = await debitAgentVerified(agent.id, params.chain, totalRequired);
-    if (!debitResult.success) return { success: false, error: debitResult.error! };
-  } else {
-    const row = db!.prepare("SELECT verified_balance, balance FROM deposits WHERE wallet_address = ? AND chain = ?")
-      .get(params.posterWallet, params.chain) as { verified_balance: number; balance: number } | undefined;
-    if (!row || row.verified_balance < totalRequired) {
-      return {
-        success: false,
-        error: `Insufficient wallet balance. Need ${totalRequired.toFixed(4)} ${params.chain} (bounty + collateral).`,
-      };
+  const hasSufficient = deposit && deposit.verified_balance >= totalRequired;
+  if (hasSufficient) {
+    const agent = await getAgentByWallet(params.posterWallet, params.chain);
+    if (agent) {
+      const debitResult = await debitAgentVerified(agent.id, params.chain, totalRequired);
+      if (!debitResult.success) return { success: false, error: debitResult.error! };
+    } else {
+      const row = db!.prepare("SELECT verified_balance, balance FROM deposits WHERE wallet_address = ? AND chain = ?")
+        .get(params.posterWallet, params.chain) as { verified_balance: number; balance: number } | undefined;
+      if (row && row.verified_balance >= totalRequired) {
+        const newVerified = row.verified_balance - totalRequired;
+        const newBalance = row.balance - totalRequired;
+        db!.prepare("UPDATE deposits SET verified_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?")
+          .run(newVerified, newBalance, params.posterWallet, params.chain);
+      }
     }
-    const newVerified = row.verified_balance - totalRequired;
-    const newBalance = row.balance - totalRequired;
-    db!.prepare("UPDATE deposits SET verified_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?")
-      .run(newVerified, newBalance, params.posterWallet, params.chain);
   }
   const privateId = generatePrivateId();
   const totalPaid = totalRequired;
