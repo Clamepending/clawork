@@ -42,11 +42,11 @@ export default function BountyDetailPage() {
 
   // Private key view = opened with bounty private key (non-numeric). Public view = numeric id from Browse Bounties.
   const isPrivateKeyView = !/^\d+$/.test(jobId);
-  // Free tasks have no bounty private key; anyone can view response and rate. Paid bounties: only private key view can view/rate.
-  const isFreeTask = job ? job.amount === 0 && job.poster_wallet == null : false;
+  // Free bounties: response visible by numeric id; paid: only with private key. Rating is only allowed with private key (API rejects numeric id).
+  const isFreeTask = job ? job.amount === 0 : false;
   const canViewResponseAndRate = isPrivateKeyView || isFreeTask;
-  // Who can set/update rating: for free tasks anyone; for paid bounties only poster (private key view). Cannot set if auto-verified (rating 0).
-  const canSetRating = (isFreeTask || isPrivateKeyView) && (!submission || submission.rating === null || submission.rating > 0);
+  // Show rating form + Submit button only when viewing with private key and submission not yet rated (ratings are immutable).
+  const canSetRating = isPrivateKeyView && submission != null && submission.rating === null;
 
   useEffect(() => {
     loadJob();
@@ -281,7 +281,7 @@ export default function BountyDetailPage() {
                     onClick={submitRating}
                     disabled={submittingRating || rating === 0}
                   >
-                    {submittingRating ? "Submitting..." : submission.rating != null ? "Update Rating" : "Submit Rating"}
+                    {submittingRating ? "Submitting..." : "Submit Rating"}
                   </button>
                 </>
               )}

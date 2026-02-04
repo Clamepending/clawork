@@ -37,25 +37,29 @@ export async function POST(
     if (!job) {
       return NextResponse.json({ error: "Bounty not found." }, { status: 404 });
     }
-    if (posterUsername && posterPrivateKey) {
-      const usernameLower = posterUsername.toLowerCase();
-      const agent = await getAgentByUsername(usernameLower);
-      if (!agent) {
-        return NextResponse.json({ error: "Account not found." }, { status: 404 });
+    const isFreeBounty = job.amount === 0;
+    // Free bounties: anyone with the private link can rate (no poster auth). Paid bounties: only poster can rate.
+    if (!isFreeBounty) {
+      if (posterUsername && posterPrivateKey) {
+        const usernameLower = posterUsername.toLowerCase();
+        const agent = await getAgentByUsername(usernameLower);
+        if (!agent) {
+          return NextResponse.json({ error: "Account not found." }, { status: 404 });
+        }
+        if (!verifyPrivateKey(posterPrivateKey, agent.private_key_hash)) {
+          return NextResponse.json({ error: "Invalid username or private key." }, { status: 401 });
+        }
+        const jobPosterLower = (job.poster_username || "").toLowerCase();
+        if (jobPosterLower !== agent.username_lower) {
+          return NextResponse.json({ error: "Unauthorized. Only the poster can rate this bounty." }, { status: 403 });
+        }
+      } else if (posterWallet) {
+        if (job.poster_wallet !== posterWallet) {
+          return NextResponse.json({ error: "Unauthorized. Only the poster can rate this bounty." }, { status: 403 });
+        }
+      } else {
+        return badRequest("posterWallet or posterUsername+posterPrivateKey is required to rate this paid bounty.");
       }
-      if (!verifyPrivateKey(posterPrivateKey, agent.private_key_hash)) {
-        return NextResponse.json({ error: "Invalid username or private key." }, { status: 401 });
-      }
-      const jobPosterLower = (job.poster_username || "").toLowerCase();
-      if (jobPosterLower !== agent.username_lower) {
-        return NextResponse.json({ error: "Unauthorized. Only the poster can rate this bounty." }, { status: 403 });
-      }
-    } else if (posterWallet) {
-      if (job.poster_wallet !== posterWallet) {
-        return NextResponse.json({ error: "Unauthorized. Only the poster can rate this bounty." }, { status: 403 });
-      }
-    } else {
-      return badRequest("posterWallet or posterUsername+posterPrivateKey is required for paid bounty rating.");
     }
     submission = await getSubmissionByJobPrivateId(idParam);
   }
@@ -75,7 +79,7 @@ export async function POST(
     );
   }
 
-  const isFreeTask = job.amount === 0 && job.poster_wallet == null && !job.poster_username;
+  const isFreeTask = job.amount === 0;
 
   // Check for late rating (only relevant for paid jobs with poster)
   const now = new Date();
