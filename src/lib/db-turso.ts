@@ -461,7 +461,7 @@ export async function createPaidJobFromBalanceTurso(params: {
   if (balances.verified_balance < totalRequired) {
     return {
       success: false,
-      error: `Insufficient MoltyBounty balance. Need ${totalRequired.toFixed(4)} ${params.chain} (bounty + collateral). Verified balance: ${balances.verified_balance.toFixed(4)}.`,
+      error: `Insufficient MoltyBounty balance. Need ${totalRequired.toFixed(4)} USDC (bounty + collateral). Verified balance: ${balances.verified_balance.toFixed(4)} USDC.`,
     };
   }
 

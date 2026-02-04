@@ -28,10 +28,8 @@ export default function Home() {
 
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState(0);
-  const [chain, setChain] = useState("base-usdc");
   const [posterWallet, setPosterWallet] = useState("");
   const isPaidJob = amount > 0;
-  const isBaseUsdc = chain === "base-usdc";
   const [connectedWallet, setConnectedWallet] = useState<string | null>(null);
   const [connectingWallet, setConnectingWallet] = useState(false);
   const [treasuryWallet, setTreasuryWallet] = useState<string | null>(null);
@@ -57,13 +55,13 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (isBaseUsdc && !treasuryWallet) {
+    if (isPaidJob && !treasuryWallet) {
       fetch("/api/config")
         .then((res) => res.json())
         .then((data) => data.master_wallet && setTreasuryWallet(data.master_wallet))
         .catch(() => {});
     }
-  }, [isBaseUsdc, treasuryWallet]);
+  }, [isPaidJob, treasuryWallet]);
 
   const connectWallet = useCallback(async () => {
     const ethereum = typeof window !== "undefined" ? (window as unknown as { ethereum?: { request: (args: { method: string; params?: unknown[] }) => Promise<unknown> } }).ethereum : undefined;
@@ -98,10 +96,11 @@ export default function Home() {
     setFormError(null);
     setSubmitting(true);
 
-    let posterWalletToUse = isPaidJob ? posterWallet.trim() : "";
+    const chain = "base-usdc";
+    let posterWalletToUse = isPaidJob ? (connectedWallet ?? "") : posterWallet.trim();
     let transactionHash: string | null = null;
 
-    if (isBaseUsdc && isPaidJob) {
+    if (isPaidJob) {
       if (!connectedWallet) {
         setFormError("Connect your wallet first to pay with USDC.");
         setSubmitting(false);
@@ -278,7 +277,7 @@ export default function Home() {
                   />
                 </label>
                 <label>
-                  <div className="label">Bounty amount (optional)</div>
+                  <div className="label">Bounty amount (USDC, optional)</div>
                   <input
                     type="number"
                     min="0"
@@ -289,64 +288,54 @@ export default function Home() {
                   />
                 </label>
                 {isPaidJob && (
-                  <>
-                    <label>
-                      <div className="label">Chain</div>
-                      <select value={chain} onChange={(event) => setChain(event.target.value)}>
-                        <option value="base-usdc">Base (USDC)</option>
-                        <option value="solana">Solana</option>
-                        <option value="ethereum">Ethereum</option>
-                      </select>
-                    </label>
-                    {isBaseUsdc ? (
-                      <label>
-                        <div className="label">Wallet (pay with USDC on Base)</div>
-                        {connectedWallet ? (
-                          <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
-                            <span style={{ fontFamily: "monospace", fontSize: "0.9rem", color: "var(--muted)" }}>
-                              {connectedWallet.slice(0, 10)}…{connectedWallet.slice(-8)}
-                            </span>
-                            <span style={{ fontSize: "0.85rem", color: "var(--accent-green)" }}>Connected</span>
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            className="button secondary"
-                            onClick={connectWallet}
-                            disabled={connectingWallet}
-                          >
-                            {connectingWallet ? "Connecting…" : "Connect wallet"}
-                          </button>
-                        )}
-                        <div style={{ fontSize: "0.85rem", color: "var(--muted)", marginTop: "6px" }}>
-                          You will send {amount > 0 ? `${amount} USDC` : "—"} to post (no collateral; you don’t have an account). Connect a wallet that holds USDC on Base.
-                        </div>
-                      </label>
+                  <div style={{ marginBottom: "8px" }}>
+                    <div className="label" style={{ marginBottom: "8px" }}>Pay with wallet</div>
+                    {connectedWallet ? (
+                      <div style={{ fontSize: "0.85rem", color: "var(--muted)", marginBottom: "12px" }}>
+                        Paying from <span style={{ fontFamily: "monospace", color: "var(--ink)" }}>{connectedWallet.slice(0, 8)}…{connectedWallet.slice(-6)}</span>
+                        {" "}
+                        <button
+                          type="button"
+                          onClick={() => setConnectedWallet(null)}
+                          style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", textDecoration: "underline", padding: 0, fontSize: "inherit" }}
+                        >
+                          Change
+                        </button>
+                      </div>
                     ) : (
-                      <label>
-                        <div className="label">Wallet address (for funding)</div>
-                        <input
-                          type="text"
-                          value={posterWallet}
-                          onChange={(event) => setPosterWallet(event.target.value)}
-                          placeholder="Wallet that has deposited bounty + 0.001 collateral"
-                          required={isPaidJob}
-                        />
-                        <div style={{ fontSize: "0.85rem", color: "var(--muted)", marginTop: "6px" }}>
-                          This wallet must have already deposited funds via the API. Bounty amount + 0.001 USDC collateral will be deducted.
-                        </div>
-                      </label>
+                      <p style={{ fontSize: "0.9rem", color: "var(--muted)", marginBottom: "12px" }}>
+                        Click the button below — your wallet extension will open to connect and then approve the payment.
+                      </p>
                     )}
-                  </>
+                  </div>
                 )}
                 {formError ? <div style={{ color: "var(--accent)" }}>{formError}</div> : null}
-                <button
-                  className="button"
-                  type="submit"
-                  disabled={submitting || (isBaseUsdc && isPaidJob && !connectedWallet)}
-                >
-                  {submitting ? "Posting..." : isBaseUsdc && isPaidJob ? "Pay with USDC and post bounty" : isPaidJob ? "Post bounty and fund" : "Post bounty"}
-                </button>
+                {isPaidJob ? (
+                  connectedWallet ? (
+                    <button
+                      className="button"
+                      type="submit"
+                      disabled={submitting || !treasuryWallet}
+                      style={{ fontSize: "1.1rem", padding: "14px 24px" }}
+                    >
+                      {submitting ? "Confirm in wallet…" : `Pay ${amount} USDC & post bounty`}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="button"
+                      onClick={connectWallet}
+                      disabled={connectingWallet}
+                      style={{ fontSize: "1.1rem", padding: "14px 24px" }}
+                    >
+                      {connectingWallet ? "Opening wallet…" : `Connect wallet & pay ${amount} USDC`}
+                    </button>
+                  )
+                ) : (
+                  <button className="button" type="submit" disabled={submitting}>
+                    {submitting ? "Posting..." : "Post bounty"}
+                  </button>
+                )}
               </form>
             </>
           )}

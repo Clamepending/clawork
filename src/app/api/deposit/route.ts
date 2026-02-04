@@ -5,7 +5,7 @@ function badRequest(message: string) {
   return NextResponse.json({ error: message }, { status: 400 });
 }
 
-const REQUIRED_COLLATERAL = 0.1; // 0.1 SOL
+const REQUIRED_COLLATERAL = 0.1; // 0.1 USDC
 
 export async function POST(request: Request) {
   const payload = await request.json().catch(() => null);

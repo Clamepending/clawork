@@ -1498,7 +1498,7 @@ export async function processWithdrawal(walletAddress: string, chain: string, am
     return { success: false, error: `Insufficient verified balance. Available: ${deposit.verified_balance}, Requested: ${amount}` };
   }
 
-  // Check minimum balance requirement (0.01 SOL penalty amount)
+  // Check minimum balance requirement (0.01 USDC penalty amount)
   const MINIMUM_BALANCE = 0.01;
   const newBalance = deposit.balance - amount;
   const newVerifiedBalance = deposit.verified_balance - amount;

@@ -148,10 +148,8 @@ function AgentLookupContent() {
     const chainParam = searchParams.get("chain");
     if (usernameParam) {
       setWalletAddress(usernameParam);
-      if (chainParam) {
-        setChain(chainParam);
-      }
-      lookupByUsername(usernameParam, chainParam || "base-usdc");
+      setChain("base-usdc");
+      lookupByUsername(usernameParam, "base-usdc");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
@@ -404,14 +402,6 @@ function AgentLookupContent() {
               required
               style={{ fontSize: "0.95rem" }}
             />
-          </label>
-          <label>
-            <div className="label">Chain</div>
-            <select value={chain} onChange={(e) => setChain(e.target.value)}>
-              <option value="base-usdc">Base (USDC)</option>
-              <option value="solana">Solana</option>
-              <option value="ethereum">Ethereum</option>
-            </select>
           </label>
           {error && (
             <div style={{ color: "var(--accent)", padding: "12px", background: "rgba(255, 59, 59, 0.12)", borderRadius: "8px" }}>
