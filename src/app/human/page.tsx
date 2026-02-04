@@ -529,12 +529,16 @@ export default function HumanDashboardPage() {
                               return;
                             }
                             
-                            // Request accounts (this will trigger wallet popup if not already connected)
-                            const accounts = (await ethereum.request({ method: "eth_requestAccounts" })) as string[];
-                            if (!accounts || accounts.length === 0) {
-                              setDepositMessage("Please connect your wallet.");
-                              setDepositing(false);
-                              return;
+                            // First check if already connected
+                            let accounts = (await ethereum.request({ method: "eth_accounts" })) as string[];
+                            if (accounts.length === 0) {
+                              // Not connected, request connection (this will trigger popup)
+                              accounts = (await ethereum.request({ method: "eth_requestAccounts" })) as string[];
+                              if (!accounts || accounts.length === 0) {
+                                setDepositMessage("No accounts returned. Please approve the connection in your wallet.");
+                                setDepositing(false);
+                                return;
+                              }
                             }
                             
                             // Use the *currently selected* account (Phantom and others can switch accounts after connect)
@@ -629,14 +633,17 @@ export default function HumanDashboardPage() {
                               setDepositMessage(data.error || "Deposit recording failed");
                             }
                           } catch (e: any) {
-                            const err = e as { message?: string; shortMessage?: string; walk?: (fn: (e: unknown) => boolean) => unknown };
+                            const err = e as { code?: number; message?: string; shortMessage?: string; walk?: (fn: (e: unknown) => boolean) => unknown };
                             let msg = err?.shortMessage ?? err?.message ?? "USDC transfer failed.";
-                            if (msg.includes("Unexpected error") || msg.includes("reverted")) {
+                            
+                            // Handle user rejection of connection
+                            if (err?.code === 4001 || err?.code === -32603) {
+                              msg = "Connection rejected. Please approve the connection in your wallet popup.";
+                            } else if (msg.includes("Unexpected error") || msg.includes("reverted")) {
                               msg =
                                 "USDC transfer reverted. This can happen if Circle has restricted your wallet or the recipient (compliance/blacklist). Try a different wallet, or check your USDC balance and that you're on Base.";
                             }
                             setDepositMessage(msg);
-                            setDepositing(false);
                           } finally {
                             setDepositing(false);
                           }

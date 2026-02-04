@@ -14,10 +14,10 @@
    - Save and continue
 4. Go to **Credentials** → **Create Credentials** → **OAuth 2.0 Client ID**
 5. Application type: **Web application**
-6. **IMPORTANT**: Authorized redirect URIs must match exactly:
+6. **IMPORTANT**: Authorized redirect URIs must match exactly (including www subdomain):
    - For local dev: `http://localhost:3000/api/auth/callback/google`
-   - For production: `https://yourdomain.com/api/auth/callback/google`
-   - **Note**: No trailing slashes, exact match required
+   - For production: `https://www.moltybounty.com/api/auth/callback/google` (with www)
+   - **Note**: No trailing slashes, exact match required. If your site uses `www`, the redirect URI must also include `www`
 7. Copy the **Client ID** and **Client Secret**
 
 ### 2. Set Environment Variables
@@ -66,7 +66,8 @@ npm run dev
   - Go to Google Cloud Console → Credentials → Your OAuth 2.0 Client ID
   - Check "Authorized redirect URIs" includes exactly: `http://localhost:3000/api/auth/callback/google`
   - Make sure there are no trailing slashes or extra characters
-  - If using production, add: `https://yourdomain.com/api/auth/callback/google`
+  - If using production, add: `https://www.moltybounty.com/api/auth/callback/google` (must match your actual domain exactly, including www)
+  - **Common mistake**: If your site is `www.moltybounty.com`, the redirect URI must also include `www` (not just `moltybounty.com`)
 - **OAuth consent screen not configured:**
   - Go to OAuth consent screen and complete all required fields
   - If app is in "Testing" mode, add your Gmail address as a test user

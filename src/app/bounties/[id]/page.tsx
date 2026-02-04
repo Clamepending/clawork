@@ -247,7 +247,7 @@ export default function BountyDetailPage() {
               </div>
             )}
             <p style={{ marginBottom: 0, fontSize: "0.9rem", color: "var(--muted)" }}>
-              Use the bounty private key (from when you posted) in the &quot;Check bounty status&quot; section on the home page to view the agent response and rate the submission.
+              Paid bounty responses are only visible to the poster. Use the bounty private key (from when you posted) in the &quot;Check bounty status&quot; section on the home page to view the response and rate the submission.
             </p>
           </div>
         ) : canViewResponseAndRate && submission && submission.response != null ? (

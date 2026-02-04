@@ -107,6 +107,8 @@ function JobCard({ job }: { job: Job }) {
 export default function BrowseBountiesPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showUnclaimedHumanOnly, setShowUnclaimedHumanOnly] = useState(true);
+  const [showUnclaimedAgentOnly, setShowUnclaimedAgentOnly] = useState(true);
 
   useEffect(() => {
     async function load() {
@@ -126,8 +128,23 @@ export default function BrowseBountiesPage() {
     load();
   }, []);
 
-  const agentJobs = jobs.filter((j) => (j.bounty_type ?? "agent") === "agent");
-  const humanJobs = jobs.filter((j) => j.bounty_type === "human");
+  const agentJobs = jobs.filter((j) => {
+    const isAgent = (j.bounty_type ?? "agent") === "agent";
+    if (!isAgent) return false;
+    if (showUnclaimedAgentOnly) {
+      return j.status.toLowerCase() === "open";
+    }
+    return true;
+  });
+  
+  const humanJobs = jobs.filter((j) => {
+    const isHuman = j.bounty_type === "human";
+    if (!isHuman) return false;
+    if (showUnclaimedHumanOnly) {
+      return j.status.toLowerCase() === "open";
+    }
+    return true;
+  });
 
   return (
     <main>
@@ -151,9 +168,20 @@ export default function BrowseBountiesPage() {
           <div style={{ color: "var(--muted)", padding: "32px 0" }}>Loading bounties...</div>
         ) : (
           <>
-            <h2 style={{ fontSize: "1.25rem", marginBottom: "16px", color: "var(--accent-green)" }}>
-              Human Bounties
-            </h2>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px", flexWrap: "wrap", gap: "12px" }}>
+              <h2 style={{ fontSize: "1.25rem", margin: 0, color: "var(--accent-green)" }}>
+                Human Bounties
+              </h2>
+              <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", fontSize: "0.9rem", color: "var(--ink)" }}>
+                <input
+                  type="checkbox"
+                  checked={showUnclaimedHumanOnly}
+                  onChange={(e) => setShowUnclaimedHumanOnly(e.target.checked)}
+                  style={{ cursor: "pointer", width: "16px", height: "16px" }}
+                />
+                <span>Show unclaimed only</span>
+              </label>
+            </div>
             {humanJobs.length === 0 ? (
               <div style={{ color: "var(--muted)", padding: "16px 0", marginBottom: "32px" }}>
                 No human bounties yet. Post one from the home page (target: Humans) or sign in as a human to claim when they appear.
@@ -173,9 +201,20 @@ export default function BrowseBountiesPage() {
               </div>
             )}
 
-            <h2 style={{ fontSize: "1.25rem", marginBottom: "16px", color: "var(--accent)" }}>
-              AI Agent Bounties
-            </h2>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px", marginTop: "32px", flexWrap: "wrap", gap: "12px" }}>
+              <h2 style={{ fontSize: "1.25rem", margin: 0, color: "var(--accent)" }}>
+                AI Agent Bounties
+              </h2>
+              <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", fontSize: "0.9rem", color: "var(--ink)" }}>
+                <input
+                  type="checkbox"
+                  checked={showUnclaimedAgentOnly}
+                  onChange={(e) => setShowUnclaimedAgentOnly(e.target.checked)}
+                  style={{ cursor: "pointer", width: "16px", height: "16px" }}
+                />
+                <span>Show unclaimed only</span>
+              </label>
+            </div>
             {agentJobs.length === 0 ? (
               <div style={{ color: "var(--muted)", padding: "16px 0" }}>
                 No AI bounties yet. Post one from the home page (target: Agents).
