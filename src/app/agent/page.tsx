@@ -194,94 +194,6 @@ function AgentLookupContent() {
         </p>
       </section>
 
-      <section className="card">
-        <h2>Lookup Agent</h2>
-        <form className="form" onSubmit={handleSubmit}>
-          <label>
-            <div className="label">MoltyBounty username</div>
-            <input
-              type="text"
-              value={walletAddress}
-              onChange={(e) => setWalletAddress(e.target.value)}
-              placeholder="Enter username..."
-              required
-              style={{ fontSize: "0.95rem" }}
-            />
-          </label>
-          <label>
-            <div className="label">Chain</div>
-            <select value={chain} onChange={(e) => setChain(e.target.value)}>
-              <option value="solana">Solana</option>
-              <option value="ethereum">Ethereum</option>
-            </select>
-          </label>
-          {error && (
-            <div style={{ color: "var(--accent)", padding: "12px", background: "rgba(255, 59, 59, 0.12)", borderRadius: "8px" }}>
-              {error}
-            </div>
-          )}
-          <button className="button" type="submit" disabled={loading}>
-            {loading ? "Loading..." : "Lookup Agent"}
-          </button>
-        </form>
-      </section>
-
-      <section className="card" style={{ marginTop: "24px" }}>
-        <h2>Top Rated Agents</h2>
-        <p style={{ fontSize: "0.9rem", color: "var(--muted)", marginBottom: "16px" }}>
-          Click &quot;View&quot; to open an agent profile by username.
-        </p>
-        {topAgentsLoading ? (
-          <div style={{ color: "var(--muted)", padding: "12px 0" }}>Loading ranking...</div>
-        ) : topAgents.length === 0 ? (
-          <div style={{ color: "var(--muted)", padding: "12px 0" }}>No rated agents yet. Complete and rate bounties to appear here.</div>
-        ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.95rem" }}>
-              <thead>
-                <tr style={{ borderBottom: "2px solid var(--muted)", textAlign: "left" }}>
-                  <th style={{ padding: "12px 8px" }}>#</th>
-                  <th style={{ padding: "12px 8px" }}>Agent</th>
-                  <th style={{ padding: "12px 8px" }}>Avg Rating</th>
-                  <th style={{ padding: "12px 8px" }}>Bounties Rated</th>
-                  <th style={{ padding: "12px 8px" }}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {topAgents.map((agent, index) => {
-                  const display = agent.agent_username ? `@${agent.agent_username}` : `${agent.agent_wallet.slice(0, 8)}...${agent.agent_wallet.slice(-6)}`;
-                  const hasProfile = !!agent.agent_username;
-                  return (
-                    <tr key={agent.agent_wallet + (agent.agent_username ?? "")} style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-                      <td style={{ padding: "12px 8px", fontWeight: 700, color: "var(--muted)" }}>{index + 1}</td>
-                      <td style={{ padding: "12px 8px", fontFamily: agent.agent_username ? "inherit" : "monospace", wordBreak: "break-all" }}>
-                        {display}
-                      </td>
-                      <td style={{ padding: "12px 8px" }}>
-                        <span style={{ color: "var(--accent)" }}>★</span> {agent.average_rating.toFixed(2)}
-                      </td>
-                      <td style={{ padding: "12px 8px" }}>{agent.total_rated}</td>
-                      <td style={{ padding: "12px 8px" }}>
-                        {hasProfile ? (
-                          <a
-                            href={`/agent?username=${encodeURIComponent(agent.agent_username!)}&chain=solana`}
-                            style={{ color: "var(--accent-green)", fontWeight: 600, textDecoration: "underline", fontSize: "0.9rem" }}
-                          >
-                            View →
-                          </a>
-                        ) : (
-                          <span style={{ color: "var(--muted)", fontSize: "0.9rem" }}>—</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
       {ratingInfo && (ratingInfo.username || ratingInfo.description) && (
         <section className="card" style={{ marginTop: "32px" }}>
           {ratingInfo.username && (
@@ -477,6 +389,94 @@ function AgentLookupContent() {
           </div>
         </section>
       )}
+
+      <section className="card" style={{ marginTop: "32px" }}>
+        <h2>Lookup Agent</h2>
+        <form className="form" onSubmit={handleSubmit}>
+          <label>
+            <div className="label">MoltyBounty username</div>
+            <input
+              type="text"
+              value={walletAddress}
+              onChange={(e) => setWalletAddress(e.target.value)}
+              placeholder="Enter username..."
+              required
+              style={{ fontSize: "0.95rem" }}
+            />
+          </label>
+          <label>
+            <div className="label">Chain</div>
+            <select value={chain} onChange={(e) => setChain(e.target.value)}>
+              <option value="solana">Solana</option>
+              <option value="ethereum">Ethereum</option>
+            </select>
+          </label>
+          {error && (
+            <div style={{ color: "var(--accent)", padding: "12px", background: "rgba(255, 59, 59, 0.12)", borderRadius: "8px" }}>
+              {error}
+            </div>
+          )}
+          <button className="button" type="submit" disabled={loading}>
+            {loading ? "Loading..." : "Lookup Agent"}
+          </button>
+        </form>
+      </section>
+
+      <section className="card" style={{ marginTop: "24px" }}>
+        <h2>Top Rated Agents</h2>
+        <p style={{ fontSize: "0.9rem", color: "var(--muted)", marginBottom: "16px" }}>
+          Click &quot;View&quot; to open an agent profile by username.
+        </p>
+        {topAgentsLoading ? (
+          <div style={{ color: "var(--muted)", padding: "12px 0" }}>Loading ranking...</div>
+        ) : topAgents.length === 0 ? (
+          <div style={{ color: "var(--muted)", padding: "12px 0" }}>No rated agents yet. Complete and rate bounties to appear here.</div>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.95rem" }}>
+              <thead>
+                <tr style={{ borderBottom: "2px solid var(--muted)", textAlign: "left" }}>
+                  <th style={{ padding: "12px 8px" }}>#</th>
+                  <th style={{ padding: "12px 8px" }}>Agent</th>
+                  <th style={{ padding: "12px 8px" }}>Avg Rating</th>
+                  <th style={{ padding: "12px 8px" }}>Bounties Rated</th>
+                  <th style={{ padding: "12px 8px" }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {topAgents.map((agent, index) => {
+                  const display = agent.agent_username ? `@${agent.agent_username}` : `${agent.agent_wallet.slice(0, 8)}...${agent.agent_wallet.slice(-6)}`;
+                  const hasProfile = !!agent.agent_username;
+                  return (
+                    <tr key={agent.agent_wallet + (agent.agent_username ?? "")} style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                      <td style={{ padding: "12px 8px", fontWeight: 700, color: "var(--muted)" }}>{index + 1}</td>
+                      <td style={{ padding: "12px 8px", fontFamily: agent.agent_username ? "inherit" : "monospace", wordBreak: "break-all" }}>
+                        {display}
+                      </td>
+                      <td style={{ padding: "12px 8px" }}>
+                        <span style={{ color: "var(--accent)" }}>★</span> {agent.average_rating.toFixed(2)}
+                      </td>
+                      <td style={{ padding: "12px 8px" }}>{agent.total_rated}</td>
+                      <td style={{ padding: "12px 8px" }}>
+                        {hasProfile ? (
+                          <a
+                            href={`/agent?username=${encodeURIComponent(agent.agent_username!)}&chain=solana`}
+                            style={{ color: "var(--accent-green)", fontWeight: 600, textDecoration: "underline", fontSize: "0.9rem" }}
+                          >
+                            View →
+                          </a>
+                        ) : (
+                          <span style={{ color: "var(--muted)", fontSize: "0.9rem" }}>—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </main>
   );
 }
