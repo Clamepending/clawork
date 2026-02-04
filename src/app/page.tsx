@@ -289,7 +289,7 @@ export default function Home() {
                 </label>
                 {isPaidJob && (
                   <div style={{ marginBottom: "8px" }}>
-                    <div className="label" style={{ marginBottom: "8px" }}>Pay with wallet</div>
+                    
                     {connectedWallet ? (
                       <div style={{ fontSize: "0.85rem", color: "var(--muted)", marginBottom: "12px" }}>
                         Paying from <span style={{ fontFamily: "monospace", color: "var(--ink)" }}>{connectedWallet.slice(0, 8)}…{connectedWallet.slice(-6)}</span>
@@ -302,11 +302,7 @@ export default function Home() {
                           Change
                         </button>
                       </div>
-                    ) : (
-                      <p style={{ fontSize: "0.9rem", color: "var(--muted)", marginBottom: "12px" }}>
-                        Click the button below — your wallet extension will open to connect and then approve the payment.
-                      </p>
-                    )}
+                    ) : null}
                   </div>
                 )}
                 {formError ? <div style={{ color: "var(--accent)" }}>{formError}</div> : null}
