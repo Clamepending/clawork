@@ -3,36 +3,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 
-let db: Database.Database;
+// When Turso env is set, do NOT open a local SQLite file (Vercel/serverless has read-only fs).
+const usingTurso = !!(process.env.TURSO_DB_URL && process.env.TURSO_DB_AUTH_TOKEN);
 
-// Initialize database based on environment
-if (process.env.TURSO_DB_URL && process.env.TURSO_DB_AUTH_TOKEN) {
-  // Use Turso HTTP API directly (production/serverless)
-  // Note: For serverless, we use Turso's HTTP API which requires async operations
-  // However, since Next.js API routes are async, this works fine
-  // We'll use better-sqlite3 for local dev, and Turso HTTP for production
-  
-  // In serverless (Vercel), use Turso HTTP API directly
-  // For now, fall back to local SQLite in serverless and use Turso HTTP in API routes
-  // This is a simplified approach - for full Turso support, API routes should use async Turso client
-  
-  // For build time and serverless, create a minimal SQLite file that will be replaced
-  // The actual Turso connection will be made via HTTP in API routes if needed
-  const dbPath = process.env.DATABASE_PATH || "./clawork.db";
-  const resolvedPath = path.resolve(process.cwd(), dbPath);
-  
-  if (!fs.existsSync(path.dirname(resolvedPath))) {
-    fs.mkdirSync(path.dirname(resolvedPath), { recursive: true });
-  }
-  
-  db = new Database(resolvedPath);
-  db.pragma("journal_mode = WAL");
-  
-  // Note: In production, API routes should use Turso HTTP client directly
-  // This local DB is just for schema initialization during build
-  
-} else {
-  // Use local SQLite file (development)
+let db: Database.Database | null = null;
+
+if (!usingTurso) {
   const dbPath = process.env.DATABASE_PATH || "./clawork.db";
   const resolvedPath = path.resolve(process.cwd(), dbPath);
 
@@ -41,10 +17,11 @@ if (process.env.TURSO_DB_URL && process.env.TURSO_DB_AUTH_TOKEN) {
   }
 
   db = new Database(resolvedPath);
-  db.pragma("journal_mode = WAL");
+  db!.pragma("journal_mode = WAL");
 }
 
-db.exec(`
+if (db) {
+  db!.exec(`
   CREATE TABLE IF NOT EXISTS jobs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     private_id TEXT NOT NULL UNIQUE,
@@ -109,50 +86,50 @@ db.exec(`
   );
 `);
 
-// Add rating column to submissions table if it doesn't exist (migration)
-try {
-  db.exec(`ALTER TABLE submissions ADD COLUMN rating INTEGER`);
-} catch (error: any) {
-  // Column already exists, ignore error
-  if (!error.message.includes("duplicate column")) {
-    throw error;
+  // Add rating column to submissions table if it doesn't exist (migration)
+  try {
+    db!.exec(`ALTER TABLE submissions ADD COLUMN rating INTEGER`);
+  } catch (error: any) {
+    // Column already exists, ignore error
+    if (!error.message.includes("duplicate column")) {
+      throw error;
+    }
   }
-}
 
-// Add balance columns to deposits table if they don't exist (migration)
-try {
-  db.exec(`ALTER TABLE deposits ADD COLUMN balance REAL DEFAULT 0.0`);
-  db.exec(`UPDATE deposits SET balance = amount WHERE balance = 0.0 OR balance IS NULL`);
-} catch (error: any) {
-  if (!error.message.includes("duplicate column")) {
-    throw error;
+  // Add balance columns to deposits table if they don't exist (migration)
+  try {
+    db!.exec(`ALTER TABLE deposits ADD COLUMN balance REAL DEFAULT 0.0`);
+    db!.exec(`UPDATE deposits SET balance = amount WHERE balance = 0.0 OR balance IS NULL`);
+  } catch (error: any) {
+    if (!error.message.includes("duplicate column")) {
+      throw error;
+    }
   }
-}
 
-try {
-  db.exec(`ALTER TABLE deposits ADD COLUMN pending_balance REAL DEFAULT 0.0`);
-  db.exec(`ALTER TABLE deposits ADD COLUMN verified_balance REAL DEFAULT 0.0`);
-} catch (error: any) {
-  if (!error.message.includes("duplicate column")) {
-    throw error;
+  try {
+    db!.exec(`ALTER TABLE deposits ADD COLUMN pending_balance REAL DEFAULT 0.0`);
+    db!.exec(`ALTER TABLE deposits ADD COLUMN verified_balance REAL DEFAULT 0.0`);
+  } catch (error: any) {
+    if (!error.message.includes("duplicate column")) {
+      throw error;
+    }
   }
-}
 
-// Add job_wallet column to jobs table if it doesn't exist (migration)
-try {
-  const masterWallet = process.env.MASTER_WALLET_ADDRESS || "";
-  db.exec(`ALTER TABLE jobs ADD COLUMN job_wallet TEXT`);
-  if (masterWallet) {
-    db.prepare(`UPDATE jobs SET job_wallet = ? WHERE job_wallet IS NULL`).run(masterWallet);
+  // Add job_wallet column to jobs table if it doesn't exist (migration)
+  try {
+    const masterWallet = process.env.MASTER_WALLET_ADDRESS || "";
+    db!.exec(`ALTER TABLE jobs ADD COLUMN job_wallet TEXT`);
+    if (masterWallet) {
+      db!.prepare(`UPDATE jobs SET job_wallet = ? WHERE job_wallet IS NULL`).run(masterWallet);
+    }
+  } catch (error: any) {
+    if (!error.message.includes("duplicate column")) {
+      throw error;
+    }
   }
-} catch (error: any) {
-  if (!error.message.includes("duplicate column")) {
-    throw error;
-  }
-}
 
-// Agents (MoltyBounty ID) and agent_wallets
-db.exec(`
+  // Agents (MoltyBounty ID) and agent_wallets
+  db!.exec(`
   CREATE TABLE IF NOT EXISTS agents (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username_lower TEXT NOT NULL UNIQUE,
@@ -185,63 +162,64 @@ db.exec(`
   );
 `);
 
-try {
-  db.exec(`ALTER TABLE jobs ADD COLUMN poster_username TEXT`);
-} catch (error: any) {
-  if (!error.message?.includes("duplicate column")) throw error;
-}
-try {
-  db.exec(`ALTER TABLE submissions ADD COLUMN agent_username TEXT`);
-} catch (error: any) {
-  if (!error.message?.includes("duplicate column")) throw error;
-}
-try {
-  db.exec(`ALTER TABLE submissions ADD COLUMN agent_id INTEGER`);
-} catch (error: any) {
-  if (!error.message?.includes("duplicate column")) throw error;
-}
-try {
-  db.exec(`ALTER TABLE agents ADD COLUMN description TEXT`);
-} catch (error: any) {
-  if (!error.message?.includes("duplicate column")) throw error;
-}
-
-// Add rating_deadline column to submissions table if it doesn't exist (migration)
-try {
-  db.exec(`ALTER TABLE submissions ADD COLUMN rating_deadline TEXT`);
-  // Set deadline for existing submissions (24 hours from created_at)
-  const submissions = db.prepare("SELECT id, created_at FROM submissions WHERE rating_deadline IS NULL").all() as { id: number; created_at: string }[];
-  const updateStmt = db.prepare("UPDATE submissions SET rating_deadline = ? WHERE id = ?");
-  for (const sub of submissions) {
-    const deadline = new Date(new Date(sub.created_at).getTime() + 24 * 60 * 60 * 1000).toISOString();
-    updateStmt.run(deadline, sub.id);
-  }
-} catch (error: any) {
-  if (!error.message.includes("duplicate column")) {
-    throw error;
-  }
-}
-
-// Add private_id column to jobs table if it doesn't exist (migration)
-try {
-  db.exec(`ALTER TABLE jobs ADD COLUMN private_id TEXT`);
-  // Generate private_ids for existing jobs
-  const existingJobs = db.prepare("SELECT id FROM jobs WHERE private_id IS NULL").all() as { id: number }[];
-  const updateStmt = db.prepare("UPDATE jobs SET private_id = ? WHERE id = ?");
-  for (const job of existingJobs) {
-    const privateId = generatePrivateId();
-    updateStmt.run(privateId, job.id);
-  }
-  // Create unique index
   try {
-    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_private_id ON jobs(private_id)`);
-  } catch (e) {
-    // Index might already exist, ignore
+    db!.exec(`ALTER TABLE jobs ADD COLUMN poster_username TEXT`);
+  } catch (error: any) {
+    if (!error.message?.includes("duplicate column")) throw error;
   }
-} catch (error: any) {
-  // Column already exists, ignore error
-  if (!error.message.includes("duplicate column") && !error.message.includes("already exists")) {
-    throw error;
+  try {
+    db!.exec(`ALTER TABLE submissions ADD COLUMN agent_username TEXT`);
+  } catch (error: any) {
+    if (!error.message?.includes("duplicate column")) throw error;
+  }
+  try {
+    db!.exec(`ALTER TABLE submissions ADD COLUMN agent_id INTEGER`);
+  } catch (error: any) {
+    if (!error.message?.includes("duplicate column")) throw error;
+  }
+  try {
+    db!.exec(`ALTER TABLE agents ADD COLUMN description TEXT`);
+  } catch (error: any) {
+    if (!error.message?.includes("duplicate column")) throw error;
+  }
+
+  // Add rating_deadline column to submissions table if it doesn't exist (migration)
+  try {
+    db!.exec(`ALTER TABLE submissions ADD COLUMN rating_deadline TEXT`);
+    // Set deadline for existing submissions (24 hours from created_at)
+    const submissions = db!.prepare("SELECT id, created_at FROM submissions WHERE rating_deadline IS NULL").all() as { id: number; created_at: string }[];
+    const updateStmt = db!.prepare("UPDATE submissions SET rating_deadline = ? WHERE id = ?");
+    for (const sub of submissions) {
+      const deadline = new Date(new Date(sub.created_at).getTime() + 24 * 60 * 60 * 1000).toISOString();
+      updateStmt.run(deadline, sub.id);
+    }
+  } catch (error: any) {
+    if (!error.message.includes("duplicate column")) {
+      throw error;
+    }
+  }
+
+  // Add private_id column to jobs table if it doesn't exist (migration)
+  try {
+    db!.exec(`ALTER TABLE jobs ADD COLUMN private_id TEXT`);
+    // Generate private_ids for existing jobs
+    const existingJobs = db!.prepare("SELECT id FROM jobs WHERE private_id IS NULL").all() as { id: number }[];
+    const updateStmt = db!.prepare("UPDATE jobs SET private_id = ? WHERE id = ?");
+    for (const job of existingJobs) {
+      const privateId = generatePrivateId();
+      updateStmt.run(privateId, job.id);
+    }
+    // Create unique index
+    try {
+      db!.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_private_id ON jobs(private_id)`);
+    } catch (e) {
+      // Index might already exist, ignore
+    }
+  } catch (error: any) {
+    // Column already exists, ignore error
+    if (!error.message.includes("duplicate column") && !error.message.includes("already exists")) {
+      throw error;
+    }
   }
 }
 
@@ -291,9 +269,6 @@ export type DepositRecord = {
   created_at: string;
 };
 
-// Check if using Turso
-const usingTurso = !!(process.env.TURSO_DB_URL && process.env.TURSO_DB_AUTH_TOKEN);
-
 // Lazy-load Turso module (required for Next.js bundler to resolve named exports)
 let tursoModule: typeof import("./db-turso") | null = null;
 async function getTurso() {
@@ -338,7 +313,7 @@ export async function createAgent(params: {
   }
   const createdAt = new Date().toISOString();
   const description = params.description ?? null;
-  const info = db.prepare(
+  const info = db!.prepare(
     `INSERT INTO agents (username_lower, username_display, private_key_hash, description, created_at) VALUES (?, ?, ?, ?, ?)`
   ).run(params.usernameLower, params.usernameDisplay, params.privateKeyHash, description, createdAt);
   return {
@@ -354,7 +329,7 @@ export async function getAgentByUsername(usernameLower: string): Promise<AgentRe
     const turso = await getTurso();
     return turso.getAgentByUsernameTurso(usernameLower);
   }
-  return db.prepare("SELECT * FROM agents WHERE username_lower = ?").get(usernameLower) as AgentRecord | undefined;
+  return db!.prepare("SELECT * FROM agents WHERE username_lower = ?").get(usernameLower) as AgentRecord | undefined;
 }
 
 export async function linkWallet(params: { agentId: number; walletAddress: string; chain: string }): Promise<void> {
@@ -364,9 +339,9 @@ export async function linkWallet(params: { agentId: number; walletAddress: strin
   }
   const chain = params.chain.trim().toLowerCase();
   const wallet = params.walletAddress.trim();
-  db.prepare("DELETE FROM agent_wallets WHERE agent_id = ? AND chain = ?").run(params.agentId, chain);
+  db!.prepare("DELETE FROM agent_wallets WHERE agent_id = ? AND chain = ?").run(params.agentId, chain);
   const createdAt = new Date().toISOString();
-  db.prepare(
+  db!.prepare(
     `INSERT INTO agent_wallets (agent_id, wallet_address, chain, created_at) VALUES (?, ?, ?, ?)`
   ).run(params.agentId, wallet, chain, createdAt);
 }
@@ -376,7 +351,7 @@ export async function getLinkedWallet(agentId: number, chain: string): Promise<{
     const turso = await getTurso();
     return turso.getLinkedWalletTurso(agentId, chain);
   }
-  const row = db
+  const row = db!
     .prepare("SELECT wallet_address FROM agent_wallets WHERE agent_id = ? AND chain = ?")
     .get(agentId, chain.trim().toLowerCase()) as { wallet_address: string } | undefined;
   return row;
@@ -387,7 +362,7 @@ export async function getAgentByWallet(walletAddress: string, chain: string): Pr
     const turso = await getTurso();
     return turso.getAgentByWalletTurso(walletAddress, chain);
   }
-  return db
+  return db!
     .prepare(
       `SELECT a.* FROM agents a JOIN agent_wallets w ON w.agent_id = a.id WHERE w.wallet_address = ? AND w.chain = ?`
     )
@@ -402,7 +377,7 @@ export async function getAgentBalances(agentId: number, chain: string): Promise<
     const turso = await getTurso();
     return turso.getAgentBalancesTurso(agentId, chain);
   }
-  const row = db
+  const row = db!
     .prepare("SELECT balance, pending_balance, verified_balance FROM agent_balances WHERE agent_id = ? AND chain = ?")
     .get(agentId, chain) as { balance: number; pending_balance: number; verified_balance: number } | undefined;
   return row ?? { balance: 0, pending_balance: 0, verified_balance: 0 };
@@ -413,10 +388,10 @@ export async function ensureAgentBalanceRow(agentId: number, chain: string): Pro
     const turso = await getTurso();
     return turso.ensureAgentBalanceRowTurso(agentId, chain);
   }
-  const existing = db.prepare("SELECT 1 FROM agent_balances WHERE agent_id = ? AND chain = ?").get(agentId, chain);
+  const existing = db!.prepare("SELECT 1 FROM agent_balances WHERE agent_id = ? AND chain = ?").get(agentId, chain);
   if (!existing) {
     const now = new Date().toISOString();
-    db.prepare(
+    db!.prepare(
       `INSERT INTO agent_balances (agent_id, chain, verified_balance, pending_balance, balance, created_at, updated_at)
        VALUES (?, ?, 0, 0, 0, ?, ?)`
     ).run(agentId, chain, now, now);
@@ -429,11 +404,11 @@ export async function creditAgentPending(agentId: number, chain: string, amount:
     return turso.creditAgentPendingTurso(agentId, chain, amount);
   }
   await ensureAgentBalanceRow(agentId, chain);
-  const row = db.prepare("SELECT pending_balance, balance FROM agent_balances WHERE agent_id = ? AND chain = ?").get(agentId, chain) as { pending_balance: number; balance: number };
+  const row = db!.prepare("SELECT pending_balance, balance FROM agent_balances WHERE agent_id = ? AND chain = ?").get(agentId, chain) as { pending_balance: number; balance: number };
   const newPending = row.pending_balance + amount;
   const newBalance = row.balance + amount;
   const now = new Date().toISOString();
-  db.prepare("UPDATE agent_balances SET pending_balance = ?, balance = ?, updated_at = ? WHERE agent_id = ? AND chain = ?")
+  db!.prepare("UPDATE agent_balances SET pending_balance = ?, balance = ?, updated_at = ? WHERE agent_id = ? AND chain = ?")
     .run(newPending, newBalance, now, agentId, chain);
 }
 
@@ -442,13 +417,13 @@ export async function moveAgentPendingToVerified(agentId: number, chain: string,
     const turso = await getTurso();
     return turso.moveAgentPendingToVerifiedTurso(agentId, chain, amount);
   }
-  const row = db.prepare("SELECT pending_balance, verified_balance, balance FROM agent_balances WHERE agent_id = ? AND chain = ?").get(agentId, chain) as { pending_balance: number; verified_balance: number; balance: number } | undefined;
+  const row = db!.prepare("SELECT pending_balance, verified_balance, balance FROM agent_balances WHERE agent_id = ? AND chain = ?").get(agentId, chain) as { pending_balance: number; verified_balance: number; balance: number } | undefined;
   if (!row) return;
   const newPending = Math.max(0, row.pending_balance - amount);
   const newVerified = row.verified_balance + amount;
   const newBalance = newPending + newVerified;
   const now = new Date().toISOString();
-  db.prepare("UPDATE agent_balances SET pending_balance = ?, verified_balance = ?, balance = ?, updated_at = ? WHERE agent_id = ? AND chain = ?")
+  db!.prepare("UPDATE agent_balances SET pending_balance = ?, verified_balance = ?, balance = ?, updated_at = ? WHERE agent_id = ? AND chain = ?")
     .run(newPending, newVerified, newBalance, now, agentId, chain);
 }
 
@@ -457,12 +432,12 @@ export async function deductAgentPending(agentId: number, chain: string, amount:
     const turso = await getTurso();
     return turso.deductAgentPendingTurso(agentId, chain, amount);
   }
-  const row = db.prepare("SELECT pending_balance, balance FROM agent_balances WHERE agent_id = ? AND chain = ?").get(agentId, chain) as { pending_balance: number; balance: number } | undefined;
+  const row = db!.prepare("SELECT pending_balance, balance FROM agent_balances WHERE agent_id = ? AND chain = ?").get(agentId, chain) as { pending_balance: number; balance: number } | undefined;
   if (!row) return;
   const newPending = Math.max(0, row.pending_balance - amount);
   const newBalance = row.balance - amount;
   const now = new Date().toISOString();
-  db.prepare("UPDATE agent_balances SET pending_balance = ?, balance = ?, updated_at = ? WHERE agent_id = ? AND chain = ?")
+  db!.prepare("UPDATE agent_balances SET pending_balance = ?, balance = ?, updated_at = ? WHERE agent_id = ? AND chain = ?")
     .run(newPending, newBalance, now, agentId, chain);
 }
 
@@ -471,13 +446,13 @@ export async function debitAgentVerified(agentId: number, chain: string, amount:
     const turso = await getTurso();
     return turso.debitAgentVerifiedTurso(agentId, chain, amount);
   }
-  const row = db.prepare("SELECT verified_balance, balance FROM agent_balances WHERE agent_id = ? AND chain = ?").get(agentId, chain) as { verified_balance: number; balance: number } | undefined;
+  const row = db!.prepare("SELECT verified_balance, balance FROM agent_balances WHERE agent_id = ? AND chain = ?").get(agentId, chain) as { verified_balance: number; balance: number } | undefined;
   if (!row) return { success: false, error: "No balance record for this agent and chain." };
   if (row.verified_balance < amount) return { success: false, error: `Insufficient verified balance. Available: ${row.verified_balance}, Requested: ${amount}` };
   const newVerified = row.verified_balance - amount;
   const newBalance = row.balance - amount;
   const now = new Date().toISOString();
-  db.prepare("UPDATE agent_balances SET verified_balance = ?, balance = ?, updated_at = ? WHERE agent_id = ? AND chain = ?")
+  db!.prepare("UPDATE agent_balances SET verified_balance = ?, balance = ?, updated_at = ? WHERE agent_id = ? AND chain = ?")
     .run(newVerified, newBalance, now, agentId, chain);
   return { success: true };
 }
@@ -488,11 +463,11 @@ export async function creditAgentVerified(agentId: number, chain: string, amount
     return turso.creditAgentVerifiedTurso(agentId, chain, amount);
   }
   await ensureAgentBalanceRow(agentId, chain);
-  const row = db.prepare("SELECT verified_balance, balance FROM agent_balances WHERE agent_id = ? AND chain = ?").get(agentId, chain) as { verified_balance: number; balance: number };
+  const row = db!.prepare("SELECT verified_balance, balance FROM agent_balances WHERE agent_id = ? AND chain = ?").get(agentId, chain) as { verified_balance: number; balance: number };
   const newVerified = row.verified_balance + amount;
   const newBalance = row.balance + amount;
   const now = new Date().toISOString();
-  db.prepare("UPDATE agent_balances SET verified_balance = ?, balance = ?, updated_at = ? WHERE agent_id = ? AND chain = ?")
+  db!.prepare("UPDATE agent_balances SET verified_balance = ?, balance = ?, updated_at = ? WHERE agent_id = ? AND chain = ?")
     .run(newVerified, newBalance, now, agentId, chain);
 }
 
@@ -517,7 +492,7 @@ export async function createJob(params: {
   const totalPaid = params.amount + collateralAmount;
   const posterUsername = params.posterUsername ?? null;
 
-  const jobStmt = db.prepare(
+  const jobStmt = db!.prepare(
     `INSERT INTO jobs (private_id, description, amount, chain, poster_wallet, poster_username, master_wallet, job_wallet, status, created_at)
      VALUES (@private_id, @description, @amount, @chain, @poster_wallet, @poster_username, @master_wallet, @job_wallet, 'open', @created_at)`
   );
@@ -539,7 +514,7 @@ export async function createJob(params: {
   
   // Record the poster's payment only for paid jobs (free tasks have no poster payment)
   if (!isFreeTask && params.posterWallet) {
-    const paymentStmt = db.prepare(
+    const paymentStmt = db!.prepare(
       `INSERT INTO poster_payments (job_id, poster_wallet, job_amount, collateral_amount, total_paid, transaction_hash, created_at)
        VALUES (@job_id, @poster_wallet, @job_amount, @collateral_amount, @total_paid, @transaction_hash, @created_at)`
     );
@@ -595,7 +570,7 @@ export async function createPaidJobFromBalance(params: {
   const createdAt = new Date().toISOString();
   const posterWalletPlaceholder = `moltybounty:${params.posterAgentId}`;
 
-  const jobInfo = db.prepare(
+  const jobInfo = db!.prepare(
     `INSERT INTO jobs (private_id, description, amount, chain, poster_wallet, poster_username, master_wallet, job_wallet, status, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`
   ).run(
@@ -610,7 +585,7 @@ export async function createPaidJobFromBalance(params: {
     createdAt
   );
   const jobId = Number(jobInfo.lastInsertRowid);
-  db.prepare(
+  db!.prepare(
     `INSERT INTO poster_payments (job_id, poster_wallet, job_amount, collateral_amount, total_paid, transaction_hash, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`
   ).run(jobId, posterWalletPlaceholder, params.amount, collateralAmount, totalPaid, null, createdAt);
@@ -636,7 +611,7 @@ export async function getPosterPayment(jobId: number) {
     const turso = await getTurso();
     return turso.getPosterPaymentTurso(jobId);
   }
-  return db.prepare("SELECT * FROM poster_payments WHERE job_id = ?").get(jobId) as PosterPaymentRecord | undefined;
+  return db!.prepare("SELECT * FROM poster_payments WHERE job_id = ?").get(jobId) as PosterPaymentRecord | undefined;
 }
 
 export async function returnPosterCollateral(jobId: number, chain: string) {
@@ -653,7 +628,7 @@ export async function returnPosterCollateral(jobId: number, chain: string) {
     const agentId = parseInt(payment.poster_wallet.slice("moltybounty:".length), 10);
     if (Number.isInteger(agentId)) {
       await creditAgentVerified(agentId, chain, payment.collateral_amount);
-      db.prepare("UPDATE poster_payments SET collateral_returned = 1, returned_at = ? WHERE job_id = ?")
+      db!.prepare("UPDATE poster_payments SET collateral_returned = 1, returned_at = ? WHERE job_id = ?")
         .run(new Date().toISOString(), jobId);
       return true;
     }
@@ -666,7 +641,7 @@ export async function returnPosterCollateral(jobId: number, chain: string) {
     // Update existing deposit - add to verified balance (since it's a return)
     const newVerifiedBalance = posterDeposit.verified_balance + payment.collateral_amount;
     const newBalance = posterDeposit.balance + payment.collateral_amount;
-    db.prepare("UPDATE deposits SET verified_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?")
+    db!.prepare("UPDATE deposits SET verified_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?")
       .run(newVerifiedBalance, newBalance, payment.poster_wallet, chain);
   } else {
     // Create deposit record for poster if they don't have one
@@ -677,12 +652,12 @@ export async function returnPosterCollateral(jobId: number, chain: string) {
       status: "confirmed"
     });
     // Set verified balance equal to amount for new deposits
-    db.prepare("UPDATE deposits SET verified_balance = balance WHERE wallet_address = ? AND chain = ?")
+    db!.prepare("UPDATE deposits SET verified_balance = balance WHERE wallet_address = ? AND chain = ?")
       .run(payment.poster_wallet, chain);
   }
   
   // Mark collateral as returned
-  db.prepare("UPDATE poster_payments SET collateral_returned = 1, returned_at = ? WHERE job_id = ?")
+  db!.prepare("UPDATE poster_payments SET collateral_returned = 1, returned_at = ? WHERE job_id = ?")
     .run(new Date().toISOString(), jobId);
   
   return true;
@@ -696,12 +671,12 @@ export async function listJobs(status?: string) {
   }
 
   if (status) {
-    return db
+    return db!
       .prepare("SELECT * FROM jobs WHERE status = ? ORDER BY created_at DESC")
       .all(status) as JobRecord[];
   }
 
-  return db
+  return db!
     .prepare("SELECT * FROM jobs ORDER BY created_at DESC")
     .all() as JobRecord[];
 }
@@ -722,14 +697,14 @@ export async function getActivityFeed(limit: number = 50): Promise<ActivityFeedE
     const turso = await getTurso();
     return turso.getActivityFeedTurso(limit);
   }
-  const posted = db
+  const posted = db!
     .prepare(
       `SELECT id, poster_username as username, amount, chain, description, created_at FROM jobs
        WHERE poster_username IS NOT NULL AND poster_username != ''
        ORDER BY created_at DESC LIMIT ?`
     )
     .all(limit) as Array<{ id: number; username: string; amount: number; chain: string; description: string; created_at: string }>;
-  const claimed = db
+  const claimed = db!
     .prepare(
       `SELECT j.id as bounty_id, s.agent_username as username, j.amount, j.chain, j.description, s.created_at
        FROM submissions s JOIN jobs j ON s.job_id = j.id
@@ -767,7 +742,7 @@ export async function getJob(id: number) {
     const turso = await getTurso();
     return turso.getJobTurso(id);
   }
-  return db.prepare("SELECT * FROM jobs WHERE id = ?").get(id) as JobRecord | undefined;
+  return db!.prepare("SELECT * FROM jobs WHERE id = ?").get(id) as JobRecord | undefined;
 }
 
 export async function getJobByPrivateId(privateId: string) {
@@ -775,7 +750,7 @@ export async function getJobByPrivateId(privateId: string) {
     const turso = await getTurso();
     return turso.getJobByPrivateIdTurso(privateId);
   }
-  return db.prepare("SELECT * FROM jobs WHERE private_id = ?").get(privateId) as JobRecord | undefined;
+  return db!.prepare("SELECT * FROM jobs WHERE private_id = ?").get(privateId) as JobRecord | undefined;
 }
 
 export async function createSubmission(params: {
@@ -796,7 +771,7 @@ export async function createSubmission(params: {
   const agentUsername = params.agentUsername ?? null;
   const agentId = params.agentId ?? null;
 
-  const stmt = db.prepare(
+  const stmt = db!.prepare(
     `INSERT INTO submissions (job_id, response, agent_wallet, agent_username, agent_id, status, rating_deadline, created_at)
      VALUES (@job_id, @response, @agent_wallet, @agent_username, @agent_id, 'submitted', @rating_deadline, @created_at)`
   );
@@ -819,14 +794,14 @@ export async function createSubmission(params: {
     let deposit = await getDeposit(params.agentWallet, params.chain);
     if (!deposit) {
       const createdAtDeposit = new Date().toISOString();
-      db.prepare(
+      db!.prepare(
         `INSERT INTO deposits (wallet_address, amount, chain, transaction_hash, status, balance, pending_balance, verified_balance, created_at)
          VALUES (?, 0, ?, NULL, 'confirmed', ?, ?, 0, ?)`
       ).run(params.agentWallet, params.chain, params.jobAmount, params.jobAmount, createdAtDeposit);
     } else {
       const newPendingBalance = deposit.pending_balance + params.jobAmount;
       const newBalance = deposit.balance + params.jobAmount;
-      db.prepare("UPDATE deposits SET pending_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?")
+      db!.prepare("UPDATE deposits SET pending_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?")
         .run(newPendingBalance, newBalance, params.agentWallet, params.chain);
     }
   }
@@ -838,7 +813,7 @@ export async function createSubmission(params: {
 }
 
 export function listSubmissions(jobId: number) {
-  return db
+  return db!
     .prepare("SELECT * FROM submissions WHERE job_id = ? ORDER BY created_at DESC")
     .all(jobId) as SubmissionRecord[];
 }
@@ -848,7 +823,7 @@ export async function getAgentSubmissionCount(agentWallet: string): Promise<numb
     const turso = await getTurso();
     return turso.getAgentSubmissionCountTurso(agentWallet);
   }
-  const row = db.prepare("SELECT COUNT(*) as count FROM submissions WHERE agent_wallet = ?").get(agentWallet) as { count: number };
+  const row = db!.prepare("SELECT COUNT(*) as count FROM submissions WHERE agent_wallet = ?").get(agentWallet) as { count: number };
   return row?.count ?? 0;
 }
 
@@ -868,7 +843,7 @@ export async function listAgentSubmissions(agentWallet: string): Promise<AgentSu
     const turso = await getTurso();
     return turso.listAgentSubmissionsTurso(agentWallet);
   }
-  return db
+  return db!
     .prepare(
       `SELECT s.id AS submission_id, s.job_id, j.description, j.amount, j.chain, j.status AS job_status, s.rating, s.created_at
        FROM submissions s
@@ -884,7 +859,7 @@ export async function getAgentRatings(agentWallet: string) {
     const turso = await getTurso();
     return turso.getAgentRatingsTurso(agentWallet);
   }
-  const submissions = db
+  const submissions = db!
     .prepare("SELECT rating, created_at FROM submissions WHERE agent_wallet = ? AND rating IS NOT NULL AND rating > 0 ORDER BY created_at DESC")
     .all(agentWallet) as { rating: number; created_at: string }[];
   
@@ -912,7 +887,7 @@ export async function getAgentSubmissionCountByUsername(usernameLower: string): 
     const turso = await getTurso();
     return turso.getAgentSubmissionCountByUsernameTurso(usernameLower);
   }
-  const row = db
+  const row = db!
     .prepare("SELECT COUNT(*) as count FROM submissions WHERE agent_username IS NOT NULL AND LOWER(agent_username) = ?")
     .get(usernameLower) as { count: number };
   return row?.count ?? 0;
@@ -923,7 +898,7 @@ export async function listAgentSubmissionsByUsername(usernameLower: string): Pro
     const turso = await getTurso();
     return turso.listAgentSubmissionsByUsernameTurso(usernameLower);
   }
-  return db
+  return db!
     .prepare(
       `SELECT s.id AS submission_id, s.job_id, j.description, j.amount, j.chain, j.status AS job_status, s.rating, s.created_at
        FROM submissions s
@@ -939,7 +914,7 @@ export async function getAgentRatingsByUsername(usernameLower: string) {
     const turso = await getTurso();
     return turso.getAgentRatingsByUsernameTurso(usernameLower);
   }
-  const submissions = db
+  const submissions = db!
     .prepare("SELECT rating, created_at FROM submissions WHERE agent_username IS NOT NULL AND LOWER(agent_username) = ? AND rating IS NOT NULL AND rating > 0 ORDER BY created_at DESC")
     .all(usernameLower) as { rating: number; created_at: string }[];
   const ratings = submissions.map(s => s.rating);
@@ -971,7 +946,7 @@ export async function listTopRatedAgents(limit: number = 50): Promise<TopAgentRo
     const turso = await getTurso();
     return turso.listTopRatedAgentsTurso(limit);
   }
-  const rows = db
+  const rows = db!
     .prepare(
       `SELECT agent_wallet, MAX(agent_username) as agent_username, AVG(rating) as average_rating, COUNT(*) as total_rated
        FROM submissions
@@ -995,7 +970,7 @@ export async function getNetWorthLeaderboard(limit: number = 50): Promise<NetWor
     const turso = await getTurso();
     return turso.getNetWorthLeaderboardTurso(limit);
   }
-  const rows = db
+  const rows = db!
     .prepare(
       `SELECT a.username_display as username, COALESCE(SUM(ab.verified_balance), 0) as total_verified_balance
        FROM agents a
@@ -1014,7 +989,7 @@ export async function getSubmission(jobId: number) {
     const turso = await getTurso();
     return turso.getSubmissionTurso(jobId);
   }
-  return db
+  return db!
     .prepare("SELECT * FROM submissions WHERE job_id = ? ORDER BY created_at DESC LIMIT 1")
     .get(jobId) as SubmissionRecord | undefined;
 }
@@ -1030,10 +1005,10 @@ export async function updateSubmissionRating(submissionId: number, rating: numbe
     const turso = await getTurso();
     return turso.updateSubmissionRatingTurso(submissionId, rating, jobAmount, agentWallet, chain, posterWallet);
   }
-  const stmt = db.prepare("UPDATE submissions SET rating = ? WHERE id = ?");
+  const stmt = db!.prepare("UPDATE submissions SET rating = ? WHERE id = ?");
   stmt.run(rating, submissionId);
 
-  const submissionRow = db.prepare("SELECT agent_id FROM submissions WHERE id = ?").get(submissionId) as { agent_id: number | null } | undefined;
+  const submissionRow = db!.prepare("SELECT agent_id FROM submissions WHERE id = ?").get(submissionId) as { agent_id: number | null } | undefined;
   const agentId = submissionRow?.agent_id ?? null;
 
   if (agentId != null) {
@@ -1048,7 +1023,7 @@ export async function updateSubmissionRating(submissionId: number, rating: numbe
   const deposit = await getDeposit(agentWallet, chain);
   if (!deposit) return;
 
-  const submission = db.prepare("SELECT rating_deadline, created_at FROM submissions WHERE id = ?").get(submissionId) as { rating_deadline: string; created_at: string } | undefined;
+  const submission = db!.prepare("SELECT rating_deadline, created_at FROM submissions WHERE id = ?").get(submissionId) as { rating_deadline: string; created_at: string } | undefined;
   const now = new Date();
   const deadline = submission ? new Date(submission.rating_deadline) : null;
 
@@ -1056,12 +1031,12 @@ export async function updateSubmissionRating(submissionId: number, rating: numbe
     const newPendingBalance = Math.max(0, deposit.pending_balance - jobAmount);
     const newVerifiedBalance = deposit.verified_balance + jobAmount;
     const newBalance = newVerifiedBalance + newPendingBalance;
-    db.prepare("UPDATE deposits SET pending_balance = ?, verified_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?")
+    db!.prepare("UPDATE deposits SET pending_balance = ?, verified_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?")
       .run(newPendingBalance, newVerifiedBalance, newBalance, agentWallet, chain);
   } else {
     const newPendingBalance = Math.max(0, deposit.pending_balance - jobAmount);
     const newBalance = deposit.verified_balance + newPendingBalance;
-    db.prepare("UPDATE deposits SET pending_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?")
+    db!.prepare("UPDATE deposits SET pending_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?")
       .run(newPendingBalance, newBalance, agentWallet, chain);
   }
 }
@@ -1072,7 +1047,7 @@ export async function checkAndApplyLateRatingPenalties() {
     return turso.checkAndApplyLateRatingPenaltiesTurso();
   }
   const now = new Date().toISOString();
-  const lateSubmissions = db.prepare(`
+  const lateSubmissions = db!.prepare(`
     SELECT s.id, s.job_id, s.agent_wallet, s.agent_id, s.rating_deadline, j.chain, j.poster_wallet, j.amount
     FROM submissions s
     JOIN jobs j ON s.job_id = j.id
@@ -1098,12 +1073,12 @@ export async function checkAndApplyLateRatingPenalties() {
           const newPendingBalance = Math.max(0, agentDeposit.pending_balance - sub.amount);
           const newVerifiedBalance = agentDeposit.verified_balance + sub.amount;
           const newBalance = newVerifiedBalance + newPendingBalance;
-          db.prepare("UPDATE deposits SET pending_balance = ?, verified_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?")
+          db!.prepare("UPDATE deposits SET pending_balance = ?, verified_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?")
             .run(newPendingBalance, newVerifiedBalance, newBalance, sub.agent_wallet, sub.chain);
         }
       }
     }
-    db.prepare("UPDATE submissions SET rating = 0 WHERE id = ?").run(sub.id);
+    db!.prepare("UPDATE submissions SET rating = 0 WHERE id = ?").run(sub.id);
   }
 
   return lateSubmissions.length;
@@ -1114,7 +1089,7 @@ export async function updateJobStatus(jobId: number, status: string) {
     const turso = await getTurso();
     return turso.updateJobStatusTurso(jobId, status);
   }
-  const stmt = db.prepare("UPDATE jobs SET status = ? WHERE id = ?");
+  const stmt = db!.prepare("UPDATE jobs SET status = ? WHERE id = ?");
   stmt.run(status, jobId);
 }
 
@@ -1130,7 +1105,7 @@ export async function createDeposit(params: {
     return turso.createDepositTurso(params);
   }
   // Check if deposit row already exists (query table directly; balance may be from agent_balances when linked)
-  const existing = db
+  const existing = db!
     .prepare("SELECT * FROM deposits WHERE wallet_address = ? AND chain = ?")
     .get(params.walletAddress, params.chain) as DepositRecord | undefined;
 
@@ -1139,7 +1114,7 @@ export async function createDeposit(params: {
     // Additional deposits go to verified_balance (withdrawable)
     const newBalance = existing.balance + params.amount;
     const newVerifiedBalance = existing.verified_balance + params.amount;
-    const stmt = db.prepare(
+    const stmt = db!.prepare(
       `UPDATE deposits 
        SET amount = amount + @amount, 
            balance = @balance,
@@ -1168,7 +1143,7 @@ export async function createDeposit(params: {
   } else {
     // Create new deposit with balance equal to amount
     // Initial deposit goes to verified_balance since it's collateral that can be withdrawn
-    const stmt = db.prepare(
+    const stmt = db!.prepare(
       `INSERT INTO deposits (wallet_address, amount, chain, transaction_hash, status, balance, verified_balance, created_at)
        VALUES (@wallet_address, @amount, @chain, @transaction_hash, @status, @balance, @verified_balance, @created_at)`
     );
@@ -1234,7 +1209,7 @@ export async function getDeposit(walletAddress: string, chain: string): Promise<
       created_at: new Date().toISOString(),
     };
   }
-  return db
+  return db!
     .prepare("SELECT * FROM deposits WHERE wallet_address = ? AND chain = ?")
     .get(walletAddress, chain) as DepositRecord | undefined;
 }
@@ -1284,7 +1259,7 @@ export async function updateWalletBalance(walletAddress: string, chain: string, 
       args: [newBalance, walletAddress, chain],
     });
   } else {
-    const stmt = db.prepare("UPDATE deposits SET balance = ? WHERE wallet_address = ? AND chain = ?");
+    const stmt = db!.prepare("UPDATE deposits SET balance = ? WHERE wallet_address = ? AND chain = ?");
     stmt.run(newBalance, walletAddress, chain);
   }
   
@@ -1306,11 +1281,11 @@ export async function listDeposits(walletAddress?: string) {
     return turso.listDepositsTurso(walletAddress);
   }
   if (walletAddress) {
-    return db
+    return db!
       .prepare("SELECT * FROM deposits WHERE wallet_address = ? ORDER BY created_at DESC")
       .all(walletAddress) as DepositRecord[];
   }
-  return db
+  return db!
     .prepare("SELECT * FROM deposits ORDER BY created_at DESC")
     .all() as DepositRecord[];
 }
@@ -1338,7 +1313,7 @@ export async function createWithdrawal(params: {
     const turso = await getTurso();
     return turso.createWithdrawalTurso(params);
   }
-  const stmt = db.prepare(
+  const stmt = db!.prepare(
     `INSERT INTO withdrawals (wallet_address, amount, chain, destination_wallet, transaction_hash, status, created_at)
      VALUES (@wallet_address, @amount, @chain, @destination_wallet, @transaction_hash, @status, @created_at)`
   );
@@ -1412,7 +1387,7 @@ export async function processWithdrawal(walletAddress: string, chain: string, am
   }
 
   // Update deposit balances
-  db.prepare("UPDATE deposits SET verified_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?")
+  db!.prepare("UPDATE deposits SET verified_balance = ?, balance = ? WHERE wallet_address = ? AND chain = ?")
     .run(newVerifiedBalance, newBalance, walletAddress, chain);
 
   return {
@@ -1428,11 +1403,11 @@ export async function listWithdrawals(walletAddress?: string) {
     return turso.listWithdrawalsTurso(walletAddress);
   }
   if (walletAddress) {
-    return db
+    return db!
       .prepare("SELECT * FROM withdrawals WHERE wallet_address = ? ORDER BY created_at DESC")
       .all(walletAddress) as WithdrawalRecord[];
   }
-  return db
+  return db!
     .prepare("SELECT * FROM withdrawals ORDER BY created_at DESC")
     .all() as WithdrawalRecord[];
 }
@@ -1469,10 +1444,10 @@ export async function deleteJob(privateId: string, posterWallet: string): Promis
   }
 
   // Delete poster payment record
-  db.prepare("DELETE FROM poster_payments WHERE job_id = ?").run(job.id);
+  db!.prepare("DELETE FROM poster_payments WHERE job_id = ?").run(job.id);
 
   // Delete the job
-  db.prepare("DELETE FROM jobs WHERE id = ?").run(job.id);
+  db!.prepare("DELETE FROM jobs WHERE id = ?").run(job.id);
 
   return {
     success: true,
