@@ -26,7 +26,9 @@ export default function BrowseBountiesPage() {
       try {
         const res = await fetch("/api/jobs");
         const data = await res.json().catch(() => ({}));
-        setJobs(data.jobs || []);
+        const list: Job[] = data.jobs || [];
+        list.sort((a, b) => b.amount - a.amount);
+        setJobs(list);
       } catch {
         setJobs([]);
       } finally {
