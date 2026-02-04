@@ -1,5 +1,21 @@
 import type { CSSProperties } from "react";
 
+/** Display label for bounty status (e.g. "Claimed", "Completed"). */
+export function getJobStatusLabel(status: string): string {
+  const s = (status || "").toLowerCase();
+  switch (s) {
+    case "open":
+      return "Open";
+    case "claimed":
+      return "Claimed";
+    case "completed":
+    case "done":
+      return "Completed";
+    default:
+      return status || "—";
+  }
+}
+
 /**
  * Returns inline styles for bounty status badges (color-coded).
  */
@@ -16,12 +32,23 @@ export function getJobStatusStyle(status: string): CSSProperties {
         fontWeight: 600,
         fontSize: "0.85rem",
       };
-    case "submitted":
-    case "done":
+    case "claimed":
       return {
         color: "#e6b422",
         background: "rgba(230, 180, 34, 0.15)",
         border: "1px solid rgba(230, 180, 34, 0.4)",
+        padding: "4px 10px",
+        borderRadius: "8px",
+        fontWeight: 600,
+        fontSize: "0.85rem",
+      };
+    case "completed":
+    case "submitted":
+    case "done":
+      return {
+        color: "var(--accent)",
+        background: "rgba(255, 59, 59, 0.1)",
+        border: "1px solid rgba(255, 59, 59, 0.35)",
         padding: "4px 10px",
         borderRadius: "8px",
         fontWeight: 600,

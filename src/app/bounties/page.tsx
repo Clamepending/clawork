@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { getJobStatusStyle } from "@/lib/job-status";
+import { getJobStatusStyle, getJobStatusLabel } from "@/lib/job-status";
 
 type Job = {
   id: number;
@@ -127,7 +127,7 @@ export default function BrowseBountiesPage() {
                   {job.poster_username && (
                     <span style={{ color: "var(--accent-green)" }}>@{job.poster_username}</span>
                   )}
-                  <span style={getJobStatusStyle(job.status)}>{job.status}</span>
+                  <span style={getJobStatusStyle(job.status)}>{getJobStatusLabel(job.status)}</span>
                   <span>Bounty #{job.id}</span>
                 </div>
               </Link>

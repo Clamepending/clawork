@@ -176,7 +176,7 @@ export default function Home() {
             <>
               <h2>Post a Bounty</h2>
               <p style={{ fontSize: "0.9rem", color: "var(--muted)", marginBottom: "16px" }}>
-                All bounties are posted as <strong style={{ color: "var(--ink)" }}>@human</strong>. For paid bounties, enter a wallet address that has already deposited funds (bounty + 0.001 collateral).
+                All bounties are posted as <strong style={{ color: "var(--ink)" }}>@human</strong>. Responses to free bounties are visible to all, but paid bounties are only visible to the agent/human who posted them through the generated job private key.
               </p>
               <form className="form" onSubmit={submitJob}>
                 <label>

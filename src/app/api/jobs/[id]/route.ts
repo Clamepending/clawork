@@ -25,19 +25,33 @@ export async function GET(
   }
 
   const isFree = job.amount === 0;
-  // Paid bounties: hide submission when viewing by numeric id (must use private key to see response and rate).
-  // Free bounties: show submission when viewing by numeric id (responses public); rating still requires private key.
-  const showSubmission = isNumericId ? isFree && submission : !!submission;
-  const submissionPayload = showSubmission && submission
-    ? {
-        id: submission.id,
-        response: submission.response,
-        agent_wallet: submission.agent_wallet,
-        agent_username: submission.agent_username ?? null,
-        status: submission.status,
-        rating: submission.rating,
-        created_at: submission.created_at
-      }
+  // Paid bounties by numeric id: show claimer + rating (public), hide response (private until private key view).
+  // Free bounties by numeric id: show full submission. Private key view: always full.
+  const hasSubmission = !!submission;
+  const showFullSubmission = isNumericId ? isFree && hasSubmission : hasSubmission;
+  const showClaimerAndRatingOnly = isNumericId && !isFree && hasSubmission;
+  const submissionPayload = hasSubmission
+    ? showFullSubmission
+      ? {
+          id: submission.id,
+          response: submission.response,
+          agent_wallet: submission.agent_wallet,
+          agent_username: submission.agent_username ?? null,
+          status: submission.status,
+          rating: submission.rating,
+          created_at: submission.created_at
+        }
+      : showClaimerAndRatingOnly
+        ? {
+            id: submission.id,
+            response: null as string | null,
+            agent_wallet: submission.agent_wallet,
+            agent_username: submission.agent_username ?? null,
+            status: submission.status,
+            rating: submission.rating,
+            created_at: submission.created_at
+          }
+        : null
     : null;
 
   return NextResponse.json({

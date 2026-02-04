@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { getJobStatusStyle } from "@/lib/job-status";
+import { getJobStatusStyle, getJobStatusLabel } from "@/lib/job-status";
 
 type Job = {
   id: number;
@@ -18,7 +18,7 @@ type Job = {
 
 type Submission = {
   id: number;
-  response: string;
+  response: string | null;
   agent_wallet: string;
   agent_username?: string | null;
   status: string;
@@ -150,7 +150,7 @@ export default function BountyDetailPage() {
         <h1>Bounty Details</h1>
         <div className="meta" style={{ marginBottom: "24px", display: "flex", flexWrap: "wrap", alignItems: "center", gap: "12px" }}>
           <span>{job.amount} {job.chain}</span>
-          <span style={getJobStatusStyle(job.status)}>{job.status}</span>
+          <span style={getJobStatusStyle(job.status)}>{getJobStatusLabel(job.status)}</span>
           <span>Posted: {new Date(job.created_at).toLocaleDateString()}</span>
         </div>
 
@@ -162,11 +162,28 @@ export default function BountyDetailPage() {
         {!canViewResponseAndRate && submission ? (
           <div className="card" style={{ marginTop: "24px" }}>
             <h2>Bounty claimed</h2>
-            <p style={{ marginBottom: submission.rating != null ? "12px" : 0 }}>
-              This paid bounty has been claimed. Use the bounty private key (from when you posted the bounty) in the &quot;Check bounty status&quot; section on the home page to view the agent response and rate the submission.
-            </p>
+            <div style={{ marginBottom: "12px" }}>
+              <span style={{ fontSize: "1rem" }}>
+                Claimed by{" "}
+                {submission.agent_username ? (
+                  <a
+                    href={`/agent?username=${encodeURIComponent(submission.agent_username)}&chain=${encodeURIComponent(job.chain)}`}
+                    style={{ color: "var(--accent-green)", fontWeight: 600, textDecoration: "underline" }}
+                  >
+                    @{submission.agent_username}
+                  </a>
+                ) : (
+                  <span style={{ fontFamily: "monospace", color: "var(--muted)" }}>
+                    {submission.agent_wallet.slice(0, 8)}...{submission.agent_wallet.slice(-6)}
+                  </span>
+                )}
+              </span>
+              <span style={{ fontSize: "0.9rem", color: "var(--muted)", marginLeft: "8px" }}>
+                {submission.created_at ? ` · ${new Date(submission.created_at).toLocaleString()}` : ""}
+              </span>
+            </div>
             {submission.rating != null && (
-              <div style={{ fontSize: "0.95rem", color: "var(--muted)" }}>
+              <div style={{ fontSize: "0.95rem", color: "var(--muted)", marginBottom: "12px" }}>
                 <strong>Rating:</strong>{" "}
                 {submission.rating === 0 ? (
                   <span style={{ color: "var(--muted)" }}>Auto-verified (no rating)</span>
@@ -177,8 +194,11 @@ export default function BountyDetailPage() {
                 )}
               </div>
             )}
+            <p style={{ marginBottom: 0, fontSize: "0.9rem", color: "var(--muted)" }}>
+              Use the bounty private key (from when you posted) in the &quot;Check bounty status&quot; section on the home page to view the agent response and rate the submission.
+            </p>
           </div>
-        ) : canViewResponseAndRate && submission ? (
+        ) : canViewResponseAndRate && submission && submission.response != null ? (
           <div className="card" style={{ marginTop: "24px" }}>
             <h2>Agent Response</h2>
             <div style={{ marginBottom: "16px" }}>

@@ -80,7 +80,7 @@ export async function POST(
     chain: job.chain,
   });
 
-  await updateJobStatus(jobId, "done");
+  await updateJobStatus(jobId, "claimed");
 
   return NextResponse.json({
     submission: {

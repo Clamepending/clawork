@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getJob, getJobByPrivateId, getSubmission, getSubmissionByJobPrivateId, updateSubmissionRating, getWalletBalances, returnPosterCollateral, getAgentByUsername, RATING_IMMUTABLE_ERROR } from "@/lib/db";
+import { getJob, getJobByPrivateId, getSubmission, getSubmissionByJobPrivateId, updateSubmissionRating, updateJobStatus, getWalletBalances, returnPosterCollateral, getAgentByUsername, RATING_IMMUTABLE_ERROR } from "@/lib/db";
 import { verifyPrivateKey } from "@/lib/agent-auth";
 
 function badRequest(message: string) {
@@ -104,6 +104,8 @@ export async function POST(
   if (!isFreeTask && !isLate) {
     collateralReturned = await returnPosterCollateral(job.id, job.chain);
   }
+
+  await updateJobStatus(job.id, "completed");
 
   const balances = await getWalletBalances(submission.agent_wallet, job.chain);
   const updatedSubmission = await getSubmission(job.id);

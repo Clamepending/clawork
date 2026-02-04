@@ -2,7 +2,7 @@
 
 import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { getJobStatusStyle } from "@/lib/job-status";
+import { getJobStatusStyle, getJobStatusLabel } from "@/lib/job-status";
 
 const POSTING_COLLATERAL = 0.001;
 
@@ -296,7 +296,7 @@ function AgentLookupContent() {
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", alignItems: "center", fontSize: "0.85rem", color: "var(--muted)" }}>
                   <span>{job.amount} {job.chain}</span>
                   <span>Bounty #{job.job_id}</span>
-                  <span style={getJobStatusStyle(job.job_status)}>{job.job_status}</span>
+                  <span style={getJobStatusStyle(job.job_status)}>{getJobStatusLabel(job.job_status)}</span>
                   {job.rating != null ? (
                     job.rating === 0 ? (
                       <span style={{ color: "var(--muted)" }}>Auto-verified</span>
