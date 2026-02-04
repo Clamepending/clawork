@@ -81,8 +81,10 @@ export async function POST(request: Request) {
         transport: http("https://mainnet.base.org"),
       });
 
-      // Check master wallet USDC balance
+      // Check master wallet balances (both USDC and ETH for gas)
       const publicClient = createPublicClient({ chain: base, transport: http("https://mainnet.base.org") });
+      
+      // Check USDC balance
       const balanceRaw = await publicClient.readContract({
         address: USDC_BASE,
         abi: [
@@ -102,6 +104,18 @@ export async function POST(request: Request) {
         return NextResponse.json(
           {
             error: `Insufficient USDC in master wallet. Available: ${Number(balanceRaw) / 1e6} USDC. Requested: ${amount} USDC.`,
+          },
+          { status: 400 }
+        );
+      }
+
+      // Check ETH balance for gas fees (need at least 0.001 ETH for gas)
+      const ethBalance = await publicClient.getBalance({ address: masterWallet as `0x${string}` });
+      const minEthForGas = BigInt(1000000000000000); // 0.001 ETH
+      if (ethBalance < minEthForGas) {
+        return NextResponse.json(
+          {
+            error: `Master wallet has insufficient ETH for gas fees. Need at least 0.001 ETH on Base chain to send USDC. Current ETH balance: ${Number(ethBalance) / 1e18} ETH. Please add ETH to the master wallet.`,
           },
           { status: 400 }
         );
@@ -134,11 +148,20 @@ export async function POST(request: Request) {
       const errorMessage = error?.message || error?.shortMessage || "Unknown error";
       console.error("Failed to send USDC on-chain:", errorMessage);
       console.error("Full error:", error);
+      
       // Ensure we never expose the private key in error messages
-      const safeErrorMessage = errorMessage.replace(/private.*key/gi, "[REDACTED]");
+      let safeErrorMessage = errorMessage.replace(/private.*key/gi, "[REDACTED]");
+      
+      // Provide clearer error messages for common issues
+      if (errorMessage.includes("insufficient funds") || errorMessage.includes("exceeds the balance")) {
+        safeErrorMessage = "Master wallet has insufficient ETH for gas fees. The wallet needs ETH on Base chain to pay for transaction fees, even when sending USDC. Please add ETH to the master wallet.";
+      } else if (errorMessage.includes("reverted") || errorMessage.includes("execution reverted")) {
+        safeErrorMessage = "USDC transfer failed. This could be due to insufficient USDC balance, insufficient ETH for gas, or compliance restrictions.";
+      }
+      
       return NextResponse.json(
         {
-          error: `Failed to send USDC: ${safeErrorMessage}. Your balance has not been deducted.`,
+          error: `Failed to send USDC: ${safeErrorMessage} Your balance has not been deducted.`,
         },
         { status: 500 }
       );

@@ -709,6 +709,7 @@ export default function HumanDashboardPage() {
                           }
                           setWithdrawing(true);
                           setWithdrawMessage(null);
+                          setWithdrawSuccess(false);
                           try {
                             const res = await fetch("/api/human/withdraw", {
                               method: "POST",
@@ -720,7 +721,9 @@ export default function HumanDashboardPage() {
                               }),
                             });
                             const data = await res.json();
+                            console.log("Withdraw API response:", { status: res.status, data });
                             if (res.ok) {
+                              setWithdrawSuccess(true);
                               setWithdrawMessage(data.message || "Withdrawal successful!");
                               setWithdrawAmount("");
                               setWithdrawDestination(walletAddress || "");
@@ -734,12 +737,24 @@ export default function HumanDashboardPage() {
                                   pending_balance: balanceData.pending_balance || 0,
                                 });
                               }
+                              // Reset success state after 5 seconds
+                              setTimeout(() => {
+                                setWithdrawSuccess(false);
+                                setWithdrawMessage(null);
+                              }, 5000);
                             } else {
-                              setWithdrawMessage(data.error || "Withdrawal failed");
+                              setWithdrawSuccess(false);
+                              const errorMsg = data.error || "Withdrawal failed";
+                              console.error("Withdraw failed:", errorMsg);
+                              setWithdrawMessage(errorMsg);
+                              setTimeout(() => setWithdrawMessage(null), 8000);
                             }
                           } catch (error: any) {
-                            setWithdrawMessage(`Failed to withdraw: ${error.message || "Network error"}`);
-                            setTimeout(() => setWithdrawMessage(null), 5000);
+                            setWithdrawSuccess(false);
+                            const errorMsg = `Failed to withdraw: ${error.message || "Network error"}`;
+                            console.error("Withdraw exception:", error);
+                            setWithdrawMessage(errorMsg);
+                            setTimeout(() => setWithdrawMessage(null), 8000);
                           } finally {
                             setWithdrawing(false);
                           }
