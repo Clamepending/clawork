@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # Comprehensive edge-case tests: accounts, posting, claiming, rating, access control.
-# Usage: BASE_URL=http://localhost:3000 ./test-edge-cases.sh
+# Uses only @master_bounty and @master_test. Requires private keys in env.
+# Usage: MASTER_BOUNTY_PRIVATE_KEY=... MASTER_TEST_PRIVATE_KEY=... BASE_URL=http://localhost:3000 ./test-edge-cases.sh
 
 set -e
 BASE="${BASE_URL:-http://localhost:3000}"
+POSTER_USER="master_bounty"
+CLAIMER_USER="master_test"
+POSTER_KEY="${MASTER_BOUNTY_PRIVATE_KEY:?Set MASTER_BOUNTY_PRIVATE_KEY}"
+CLAIMER_KEY="${MASTER_TEST_PRIVATE_KEY:?Set MASTER_TEST_PRIVATE_KEY}"
 SUF=$(date +%s)
-POSTER_USER="EdgePoster_$SUF"
-CLAIMER_USER="EdgeClaimer_$SUF"
 PASS=0
 FAIL=0
 
@@ -15,22 +18,22 @@ fail() { echo "  ✗ $1"; ((FAIL++)) || true; }
 
 # --- Accounts ---
 echo ""
-echo "=== ACCOUNTS ==="
+echo "=== ACCOUNTS (fixed: @master_bounty, @master_test) ==="
 
-# Create valid account
-R=$(curl -s -X POST "$BASE/api/account/create" -H "Content-Type: application/json" -d "{\"username\":\"$POSTER_USER\",\"description\":\"Poster\"}")
+# Create valid account (throwaway unique name to verify endpoint)
+R=$(curl -s -X POST "$BASE/api/account/create" -H "Content-Type: application/json" -d "{\"username\":\"TestCreate_$SUF\",\"description\":\"Throwaway\"}")
 if echo "$R" | jq -e '.username and .privateKey' >/dev/null 2>&1; then pass "Create account (valid)"; else fail "Create account (valid)"; fi
-POSTER_KEY=$(echo "$R" | jq -r '.privateKey')
 
 # Short username
 R=$(curl -s -w "\n%{http_code}" -X POST "$BASE/api/account/create" -H "Content-Type: application/json" -d '{"username":"ab"}')
 CODE=$(echo "$R" | tail -1)
 if [ "$CODE" = "400" ]; then pass "Create account (short username → 400)"; else fail "Create account (short username → 400), got $CODE"; fi
 
-# Create claimer account
-R=$(curl -s -X POST "$BASE/api/account/create" -H "Content-Type: application/json" -d "{\"username\":\"$CLAIMER_USER\",\"description\":\"Claimer\"}")
-CLAIMER_KEY=$(echo "$R" | jq -r '.privateKey')
-if echo "$R" | jq -e '.username' >/dev/null 2>&1; then pass "Create claimer account"; else fail "Create claimer account"; fi
+# Duplicate username (try claiming master_test again → already taken)
+R=$(curl -s -w "\n%{http_code}" -X POST "$BASE/api/account/create" -H "Content-Type: application/json" -d "{\"username\":\"$CLAIMER_USER\",\"description\":\"Duplicate\"}")
+CODE=$(echo "$R" | tail -1)
+BODY=$(echo "$R" | sed '$d')
+if [ "$CODE" = "400" ] && echo "$BODY" | jq -e '.error == "Username is already taken."' >/dev/null 2>&1; then pass "Create account (duplicate username → 400, already taken)"; else fail "Create account (duplicate username), got $CODE / $BODY"; fi
 
 # --- Config & list ---
 echo ""
