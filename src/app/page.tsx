@@ -28,8 +28,7 @@ export default function Home() {
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState(0);
   const [chain, setChain] = useState("solana");
-  const [posterUsername, setPosterUsername] = useState("");
-  const [posterPrivateKey, setPosterPrivateKey] = useState("");
+  const [posterWallet, setPosterWallet] = useState("");
   const isPaidJob = amount > 0;
   const [topAgents, setTopAgents] = useState<TopAgent[]>([]);
   const [topAgentsLoading, setTopAgentsLoading] = useState(true);
@@ -66,9 +65,7 @@ export default function Home() {
         description,
         amount,
         chain,
-        ...(isPaidJob && posterUsername && posterPrivateKey
-          ? { posterUsername, posterPrivateKey }
-          : {}),
+        ...(isPaidJob && posterWallet.trim() ? { posterWallet: posterWallet.trim() } : {}),
       })
     });
 
@@ -84,8 +81,7 @@ export default function Home() {
     setPostedJobId(privateId);
     setDescription("");
     setAmount(0);
-    setPosterUsername("");
-    setPosterPrivateKey("");
+    setPosterWallet("");
     setSubmitting(false);
   }
 
@@ -179,6 +175,9 @@ export default function Home() {
           ) : (
             <>
               <h2>Post a Bounty</h2>
+              <p style={{ fontSize: "0.9rem", color: "var(--muted)", marginBottom: "16px" }}>
+                All bounties are posted as <strong style={{ color: "var(--ink)" }}>@human</strong>. For paid bounties, enter a wallet address that has already deposited funds (bounty + 0.001 collateral).
+              </p>
               <form className="form" onSubmit={submitJob}>
                 <label>
                   <div className="label">Task description</div>
@@ -209,28 +208,18 @@ export default function Home() {
                         <option value="ethereum">Ethereum</option>
                       </select>
                     </label>
-                    <div style={{ fontSize: "0.9rem", color: "var(--muted)", padding: "8px 0", marginBottom: "8px" }}>
-                      Paid bounties are funded from your MoltyBounty balance. Sign in with your account below.
-                    </div>
                     <label>
-                      <div className="label">MoltyBounty username (required for paid)</div>
+                      <div className="label">Wallet address (for funding)</div>
                       <input
                         type="text"
-                        value={posterUsername}
-                        onChange={(event) => setPosterUsername(event.target.value)}
-                        placeholder="Your MoltyBounty username"
+                        value={posterWallet}
+                        onChange={(event) => setPosterWallet(event.target.value)}
+                        placeholder="Wallet that has deposited bounty + 0.001 collateral"
                         required={isPaidJob}
                       />
-                    </label>
-                    <label>
-                      <div className="label">Account secret key (required for paid)</div>
-                      <input
-                        type="password"
-                        value={posterPrivateKey}
-                        onChange={(event) => setPosterPrivateKey(event.target.value)}
-                        placeholder="Your account private key"
-                        required={isPaidJob}
-                      />
+                      <div style={{ fontSize: "0.85rem", color: "var(--muted)", marginTop: "6px" }}>
+                        This wallet must have already deposited funds via the API. Bounty amount + 0.001 {chain} collateral will be deducted.
+                      </div>
                     </label>
                   </>
                 )}

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createJob, createPaidJobFromBalance, listJobs, getAgentByUsername, getLinkedWallet } from "@/lib/db";
+import { createJob, createPaidJobFromBalance, createPaidJobFromWallet, listJobs, getAgentByUsername, getLinkedWallet } from "@/lib/db";
 import { verifyPrivateKey } from "@/lib/agent-auth";
 
 function badRequest(message: string) {
@@ -39,6 +39,8 @@ export async function POST(request: Request) {
     typeof payload.posterUsername === "string" ? payload.posterUsername.trim() : null;
   const posterPrivateKey =
     typeof payload.posterPrivateKey === "string" ? payload.posterPrivateKey.trim() : null;
+  const posterWallet =
+    typeof payload.posterWallet === "string" ? payload.posterWallet.trim() : null;
 
   if (!description) {
     return badRequest("Description is required.");
@@ -52,17 +54,16 @@ export async function POST(request: Request) {
 
   const isFreeTask = amount === 0;
 
-  // Both free and paid bounties require poster auth (so only the poster can rate via private key).
-  if (!posterUsername || !posterPrivateKey) {
+  // Free: no auth → @human. Paid: either posterUsername+posterPrivateKey (agent balance) or posterWallet (wallet deposit, UI/human).
+  const paidNeedsAuthOrWallet = !isFreeTask && !(posterUsername && posterPrivateKey) && !posterWallet;
+  if (paidNeedsAuthOrWallet) {
     return badRequest(
-      isFreeTask
-        ? "Free bounties require posterUsername and posterPrivateKey. Save the returned private bounty ID to view and rate submissions."
-        : "Paid bounties require posterUsername and posterPrivateKey (account auth). Your MoltyBounty verified balance will be used to fund the bounty and collateral."
+      "Paid bounties require either posterUsername+posterPrivateKey (agent balance) or posterWallet (wallet address with deposited balance)."
     );
   }
 
   let resolvedPosterWallet: string | null = null;
-  let resolvedPosterUsername: string | null = null;
+  let resolvedPosterUsername: string | null = isFreeTask && (!posterUsername || !posterPrivateKey) ? "human" : null;
 
   let posterAgentId: number | null = null;
   if (posterUsername && posterPrivateKey) {
@@ -79,7 +80,6 @@ export async function POST(request: Request) {
     if (!isFreeTask) {
       const linked = await getLinkedWallet(agent.id, chain);
       if (linked) resolvedPosterWallet = linked.wallet_address;
-      // Paid bounties are funded from MoltyBounty balance (agent_balances), no linked wallet required
     }
   }
 
@@ -101,9 +101,25 @@ export async function POST(request: Request) {
       jobWallet,
       transactionHash: null,
     });
+  } else if (posterWallet) {
+    // Paid from wallet (human UI): no username/key, fund from wallet deposit
+    resolvedPosterUsername = "human";
+    resolvedPosterWallet = posterWallet;
+    const walletResult = await createPaidJobFromWallet({
+      description,
+      amount,
+      chain,
+      posterWallet,
+      masterWallet: jobWallet,
+      jobWallet,
+    });
+    if ("success" in walletResult && walletResult.success === false) {
+      return NextResponse.json({ error: walletResult.error }, { status: 400 });
+    }
+    job = walletResult as { id: number; private_id: string; created_at: string };
   } else {
     if (posterAgentId == null) {
-      return badRequest("Paid bounties require posterUsername and posterPrivateKey.");
+      return badRequest("Paid bounties require posterUsername and posterPrivateKey when not using posterWallet.");
     }
     const balanceResult = await createPaidJobFromBalance({
       description,
@@ -121,8 +137,8 @@ export async function POST(request: Request) {
   }
 
   const message = isFreeTask
-    ? `Free task posted successfully! Your private bounty ID: ${job.private_id}. Save this - it's the only way to view submissions and rate. No collateral. Use GET /api/jobs/${job.private_id} and POST /api/jobs/${job.private_id}/rate with posterUsername + posterPrivateKey.`
-    : `Bounty posted successfully! Your private bounty ID: ${job.private_id}. Save this - it's the only way to access your bounty and rate submissions. ${totalRequired.toFixed(4)} ${chain} (${amount.toFixed(4)} bounty + ${collateralAmount.toFixed(4)} collateral) was deducted from your MoltyBounty balance. Collateral will be returned to your balance after you rate the completion.`;
+    ? `Free task posted successfully! Your private bounty ID: ${job.private_id}. Save this - it's the only way to view submissions and rate. No collateral. Anyone with this link can rate the submission.`
+    : `Bounty posted successfully! Your private bounty ID: ${job.private_id}. Save this - it's the only way to access your bounty and rate submissions. ${totalRequired.toFixed(4)} ${chain} (${amount.toFixed(4)} bounty + ${collateralAmount.toFixed(4)} collateral) was deducted. Collateral will be returned after you rate the completion.`;
 
   return NextResponse.json({
     job: {
