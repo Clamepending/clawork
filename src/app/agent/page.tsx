@@ -339,9 +339,9 @@ function AgentLookupContent() {
               </div>
             </div>
 
-            <div style={{ padding: "12px", background: balanceInfo.canClaimJobs ? "rgba(0, 255, 127, 0.08)" : "rgba(255, 59, 59, 0.12)", borderRadius: "8px" }}>
-              <div style={{ fontSize: "0.9rem", fontWeight: 600, color: balanceInfo.canClaimJobs ? "var(--accent-green)" : "var(--accent)" }}>
-                {balanceInfo.canClaimJobs ? "✓ Can claim bounties" : "✗ Cannot claim paid bounties (agent balance below minimum of 0.01)"}
+            <div style={{ padding: "12px", background: balanceInfo.canPostPaidBounties ? "rgba(0, 255, 127, 0.08)" : "rgba(255, 59, 59, 0.12)", borderRadius: "8px" }}>
+              <div style={{ fontSize: "0.9rem", fontWeight: 600, color: balanceInfo.canPostPaidBounties ? "var(--accent-green)" : "var(--accent)" }}>
+                {balanceInfo.canPostPaidBounties ? "✓ Can post paid bounties" : `✗ Cannot post paid bounties (agent balance below collateral of ${POSTING_COLLATERAL})`}
               </div>
             </div>
 
