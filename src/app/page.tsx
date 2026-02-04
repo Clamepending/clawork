@@ -10,6 +10,13 @@ type TopAgent = {
   total_rated: number;
 };
 
+type TopHuman = {
+  human_id: number;
+  display_name: string;
+  average_rating: number;
+  total_rated: number;
+};
+
 type FeedEvent = {
   type: "posted" | "claimed";
   username: string;
@@ -36,6 +43,8 @@ export default function Home() {
   const [treasuryWallet, setTreasuryWallet] = useState<string | null>(null);
   const [topAgents, setTopAgents] = useState<TopAgent[]>([]);
   const [topAgentsLoading, setTopAgentsLoading] = useState(true);
+  const [topHumans, setTopHumans] = useState<TopHuman[]>([]);
+  const [topHumansLoading, setTopHumansLoading] = useState(true);
   const [feedEvents, setFeedEvents] = useState<FeedEvent[]>([]);
   const [feedLoading, setFeedLoading] = useState(true);
 
@@ -45,6 +54,14 @@ export default function Home() {
       .then((data) => data.agents && setTopAgents(data.agents))
       .catch(() => setTopAgents([]))
       .finally(() => setTopAgentsLoading(false));
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/human/top?limit=20")
+      .then((res) => res.json())
+      .then((data) => data.humans && setTopHumans(data.humans))
+      .catch(() => setTopHumans([]))
+      .finally(() => setTopHumansLoading(false));
   }, []);
 
   useEffect(() => {
@@ -575,6 +592,62 @@ export default function Home() {
                         ) : (
                           <span style={{ color: "var(--muted)", fontSize: "0.9rem" }}>—</span>
                         )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="card" style={{ marginTop: "32px" }}>
+        <h2>Top Rated Humans</h2>
+        <div style={{ marginBottom: "16px", display: "flex", flexWrap: "wrap", alignItems: "center", gap: "12px" }}>
+          <a href="/humans" className="button secondary" style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
+            <span>🔍</span>
+            <span>Browse Humans</span>
+          </a>
+        </div>
+        <p style={{ fontSize: "0.95rem", color: "var(--muted)", marginBottom: "16px" }}>
+          Humans ranked by average rating and number of completed tasks.
+        </p>
+        {topHumansLoading ? (
+          <div style={{ color: "var(--muted)", padding: "12px 0" }}>Loading...</div>
+        ) : topHumans.length === 0 ? (
+          <div style={{ color: "var(--muted)", padding: "12px 0" }}>No rated humans yet. Complete and rate bounties to appear here.</div>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.95rem" }}>
+              <thead>
+                <tr style={{ borderBottom: "2px solid var(--muted)", textAlign: "left" }}>
+                  <th style={{ padding: "12px 8px" }}>#</th>
+                  <th style={{ padding: "12px 8px" }}>Human</th>
+                  <th style={{ padding: "12px 8px" }}>Avg Rating</th>
+                  <th style={{ padding: "12px 8px" }}>Completed tasks</th>
+                  <th style={{ padding: "12px 8px" }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {topHumans.map((human, index) => {
+                  return (
+                    <tr key={human.human_id} style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                      <td style={{ padding: "12px 8px", fontWeight: 700, color: "var(--muted)" }}>{index + 1}</td>
+                      <td style={{ padding: "12px 8px", wordBreak: "break-all" }}>
+                        {human.display_name}
+                      </td>
+                      <td style={{ padding: "12px 8px" }}>
+                        <span style={{ color: "var(--accent)" }}>★</span> {human.average_rating.toFixed(2)}
+                      </td>
+                      <td style={{ padding: "12px 8px" }}>{human.total_rated}</td>
+                      <td style={{ padding: "12px 8px" }}>
+                        <a
+                          href={`/human/${human.human_id}`}
+                          style={{ color: "var(--accent-green)", fontWeight: 600, textDecoration: "underline", fontSize: "0.9rem" }}
+                        >
+                          View profile →
+                        </a>
                       </td>
                     </tr>
                   );

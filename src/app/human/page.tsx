@@ -95,6 +95,8 @@ export default function HumanDashboardPage() {
           setAvailable(data.human.available ?? true);
           setShowEmail(data.human.show_email ?? false);
           setWalletAddress(data.human.linked_wallet || "");
+          // Pre-fill destination wallet with linked wallet
+          setWithdrawDestination(data.human.linked_wallet || "");
         }
       })
       .catch(() => {})
@@ -441,7 +443,13 @@ export default function HumanDashboardPage() {
                     <input
                       type="text"
                       value={walletAddress}
-                      onChange={(e) => setWalletAddress(e.target.value)}
+                      onChange={(e) => {
+                        setWalletAddress(e.target.value);
+                        // Auto-update destination wallet if it matches the old linked wallet
+                        if (withdrawDestination === profile?.linked_wallet || !withdrawDestination) {
+                          setWithdrawDestination(e.target.value);
+                        }
+                      }}
                       placeholder="0x..."
                       style={{ 
                         fontFamily: "monospace",
@@ -541,12 +549,31 @@ export default function HumanDashboardPage() {
                           fontSize: "0.85rem"
                         }}
                       />
-                      <div style={{ fontSize: "0.8rem", color: "var(--muted)", marginBottom: "8px" }}>Destination Wallet</div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                        <div style={{ fontSize: "0.8rem", color: "var(--muted)" }}>Destination Wallet</div>
+                        {walletAddress && withdrawDestination !== walletAddress && (
+                          <button
+                            type="button"
+                            onClick={() => setWithdrawDestination(walletAddress)}
+                            style={{
+                              fontSize: "0.75rem",
+                              color: "var(--accent)",
+                              background: "none",
+                              border: "none",
+                              cursor: "pointer",
+                              textDecoration: "underline",
+                              padding: 0,
+                            }}
+                          >
+                            Use linked wallet
+                          </button>
+                        )}
+                      </div>
                       <input
                         type="text"
                         value={withdrawDestination}
                         onChange={(e) => setWithdrawDestination(e.target.value)}
-                        placeholder="0x..."
+                        placeholder={walletAddress || "0x..."}
                         style={{ 
                           fontFamily: "monospace",
                           borderRadius: "8px",

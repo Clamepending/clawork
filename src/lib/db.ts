@@ -1491,12 +1491,39 @@ export async function listTopRatedAgents(limit: number = 50): Promise<TopAgentRo
     .prepare(
       `SELECT agent_wallet, MAX(agent_username) as agent_username, AVG(rating) as average_rating, COUNT(*) as total_rated
        FROM submissions
-       WHERE rating IS NOT NULL AND rating > 0
+       WHERE rating IS NOT NULL AND rating > 0 AND agent_id IS NOT NULL
        GROUP BY agent_wallet
        ORDER BY average_rating DESC, total_rated DESC
        LIMIT ?`
     )
     .all(limit) as TopAgentRow[];
+  return rows;
+}
+
+export type TopHumanRow = {
+  human_id: number;
+  display_name: string;
+  average_rating: number;
+  total_rated: number;
+};
+
+export async function listTopRatedHumans(limit: number = 50): Promise<TopHumanRow[]> {
+  if (usingTurso) {
+    await ensureTursoSchema();
+    const turso = await getTurso();
+    return turso.listTopRatedHumansTurso(limit);
+  }
+  const rows = db!
+    .prepare(
+      `SELECT s.human_id, h.display_name, AVG(s.rating) as average_rating, COUNT(*) as total_rated
+       FROM submissions s
+       JOIN humans h ON h.id = s.human_id
+       WHERE s.rating IS NOT NULL AND s.rating > 0 AND s.human_id IS NOT NULL
+       GROUP BY s.human_id, h.display_name
+       ORDER BY average_rating DESC, total_rated DESC
+       LIMIT ?`
+    )
+    .all(limit) as TopHumanRow[];
   return rows;
 }
 

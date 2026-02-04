@@ -1475,7 +1475,7 @@ export async function listTopRatedAgentsTurso(limit: number = 50) {
   const result = await client.execute({
     sql: `SELECT agent_wallet, MAX(agent_username) as agent_username, AVG(rating) as average_rating, COUNT(*) as total_rated
           FROM submissions
-          WHERE rating IS NOT NULL AND rating > 0
+          WHERE rating IS NOT NULL AND rating > 0 AND agent_id IS NOT NULL
           GROUP BY agent_wallet
           ORDER BY average_rating DESC, total_rated DESC
           LIMIT ?`,
@@ -1483,6 +1483,31 @@ export async function listTopRatedAgentsTurso(limit: number = 50) {
   });
 
   return rowsToObjects(result.rows) as TopAgentRow[];
+}
+
+export type TopHumanRow = {
+  human_id: number;
+  display_name: string;
+  average_rating: number;
+  total_rated: number;
+};
+
+export async function listTopRatedHumansTurso(limit: number = 50) {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+
+  const result = await client.execute({
+    sql: `SELECT s.human_id, h.display_name, AVG(s.rating) as average_rating, COUNT(*) as total_rated
+          FROM submissions s
+          JOIN humans h ON h.id = s.human_id
+          WHERE s.rating IS NOT NULL AND s.rating > 0 AND s.human_id IS NOT NULL
+          GROUP BY s.human_id, h.display_name
+          ORDER BY average_rating DESC, total_rated DESC
+          LIMIT ?`,
+    args: [limit],
+  });
+
+  return rowsToObjects(result.rows) as TopHumanRow[];
 }
 
 export type NetWorthLeaderboardRow = {
