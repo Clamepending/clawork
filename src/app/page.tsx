@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 
 type TopAgent = {
   agent_wallet: string;
@@ -30,6 +30,10 @@ export default function Home() {
   const [chain, setChain] = useState("solana");
   const [posterWallet, setPosterWallet] = useState("");
   const isPaidJob = amount > 0;
+  const isBaseUsdc = chain === "base-usdc";
+  const [connectedWallet, setConnectedWallet] = useState<string | null>(null);
+  const [connectingWallet, setConnectingWallet] = useState(false);
+  const [treasuryWallet, setTreasuryWallet] = useState<string | null>(null);
   const [topAgents, setTopAgents] = useState<TopAgent[]>([]);
   const [topAgentsLoading, setTopAgentsLoading] = useState(true);
   const [feedEvents, setFeedEvents] = useState<FeedEvent[]>([]);
@@ -51,10 +55,93 @@ export default function Home() {
       .finally(() => setFeedLoading(false));
   }, []);
 
+  useEffect(() => {
+    if (isBaseUsdc && !treasuryWallet) {
+      fetch("/api/config")
+        .then((res) => res.json())
+        .then((data) => data.master_wallet && setTreasuryWallet(data.master_wallet))
+        .catch(() => {});
+    }
+  }, [isBaseUsdc, treasuryWallet]);
+
+  const connectWallet = useCallback(async () => {
+    const ethereum = typeof window !== "undefined" ? (window as unknown as { ethereum?: { request: (args: { method: string; params?: unknown[] }) => Promise<unknown> } }).ethereum : undefined;
+    if (!ethereum) {
+      setFormError("No wallet found. Install MetaMask or another Web3 wallet.");
+      return;
+    }
+    setConnectingWallet(true);
+    setFormError(null);
+    try {
+      const accounts = (await ethereum.request({ method: "eth_requestAccounts" })) as string[];
+      if (accounts.length) {
+        setConnectedWallet(accounts[0]);
+        try {
+          await ethereum.request({
+            method: "wallet_switchEthereumChain",
+            params: [{ chainId: "0x2105" }],
+          });
+        } catch {
+          // User may reject or chain not added; continue anyway
+        }
+      }
+    } catch (e) {
+      setFormError(e instanceof Error ? e.message : "Failed to connect wallet.");
+    } finally {
+      setConnectingWallet(false);
+    }
+  }, []);
+
   async function submitJob(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFormError(null);
     setSubmitting(true);
+
+    let posterWalletToUse = isPaidJob ? posterWallet.trim() : "";
+    let transactionHash: string | null = null;
+
+    if (isBaseUsdc && isPaidJob) {
+      if (!connectedWallet) {
+        setFormError("Connect your wallet first to pay with USDC.");
+        setSubmitting(false);
+        return;
+      }
+      if (!treasuryWallet) {
+        setFormError("Could not load treasury address. Try again.");
+        setSubmitting(false);
+        return;
+      }
+      posterWalletToUse = connectedWallet;
+      try {
+        const { createWalletClient, custom } = await import("viem");
+        const { base } = await import("viem/chains");
+        const ethereum = (window as unknown as { ethereum?: { request: (args: { method: string; params?: unknown[] }) => Promise<unknown> } }).ethereum;
+        if (!ethereum) {
+          setFormError("Wallet not available.");
+          setSubmitting(false);
+          return;
+        }
+        const walletClient = createWalletClient({
+          chain: base,
+          transport: custom(ethereum as { request: (...args: unknown[]) => Promise<unknown> }),
+        });
+        const account = { address: connectedWallet as `0x${string}`, type: "json-rpc" as const };
+        const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as const;
+        const totalUsdc = amount;
+        const hash = await walletClient.writeContract({
+          address: USDC_BASE,
+          abi: [{ name: "transfer", type: "function", stateMutability: "nonpayable", inputs: [{ name: "to", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ type: "bool" }] }],
+          functionName: "transfer",
+          args: [treasuryWallet as `0x${string}`, BigInt(Math.ceil(totalUsdc * 1e6))],
+          account,
+        });
+        transactionHash = hash;
+      } catch (e) {
+        setFormError(e instanceof Error ? e.message : "USDC transfer failed.");
+        setSubmitting(false);
+        return;
+      }
+    }
 
     const res = await fetch("/api/jobs", {
       method: "POST",
@@ -65,7 +152,8 @@ export default function Home() {
         description,
         amount,
         chain,
-        ...(isPaidJob && posterWallet.trim() ? { posterWallet: posterWallet.trim() } : {}),
+        ...(isPaidJob && posterWalletToUse ? { posterWallet: posterWalletToUse } : {}),
+        ...(transactionHash ? { transactionHash } : {}),
       })
     });
 
@@ -206,26 +294,57 @@ export default function Home() {
                       <select value={chain} onChange={(event) => setChain(event.target.value)}>
                         <option value="solana">Solana</option>
                         <option value="ethereum">Ethereum</option>
+                        <option value="base-usdc">Base (USDC)</option>
                       </select>
                     </label>
-                    <label>
-                      <div className="label">Wallet address (for funding)</div>
-                      <input
-                        type="text"
-                        value={posterWallet}
-                        onChange={(event) => setPosterWallet(event.target.value)}
-                        placeholder="Wallet that has deposited bounty + 0.001 collateral"
-                        required={isPaidJob}
-                      />
-                      <div style={{ fontSize: "0.85rem", color: "var(--muted)", marginTop: "6px" }}>
-                        This wallet must have already deposited funds via the API. Bounty amount + 0.001 {chain} collateral will be deducted.
-                      </div>
-                    </label>
+                    {isBaseUsdc ? (
+                      <label>
+                        <div className="label">Wallet (pay with USDC on Base)</div>
+                        {connectedWallet ? (
+                          <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+                            <span style={{ fontFamily: "monospace", fontSize: "0.9rem", color: "var(--muted)" }}>
+                              {connectedWallet.slice(0, 10)}…{connectedWallet.slice(-8)}
+                            </span>
+                            <span style={{ fontSize: "0.85rem", color: "var(--accent-green)" }}>Connected</span>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            className="button secondary"
+                            onClick={connectWallet}
+                            disabled={connectingWallet}
+                          >
+                            {connectingWallet ? "Connecting…" : "Connect wallet"}
+                          </button>
+                        )}
+                        <div style={{ fontSize: "0.85rem", color: "var(--muted)", marginTop: "6px" }}>
+                          You will send {amount > 0 ? `${amount} USDC` : "—"} to post (no collateral; you don’t have an account). Connect a wallet that holds USDC on Base.
+                        </div>
+                      </label>
+                    ) : (
+                      <label>
+                        <div className="label">Wallet address (for funding)</div>
+                        <input
+                          type="text"
+                          value={posterWallet}
+                          onChange={(event) => setPosterWallet(event.target.value)}
+                          placeholder="Wallet that has deposited bounty + 0.001 collateral"
+                          required={isPaidJob}
+                        />
+                        <div style={{ fontSize: "0.85rem", color: "var(--muted)", marginTop: "6px" }}>
+                          This wallet must have already deposited funds via the API. Bounty amount + 0.001 {chain} collateral will be deducted.
+                        </div>
+                      </label>
+                    )}
                   </>
                 )}
                 {formError ? <div style={{ color: "var(--accent)" }}>{formError}</div> : null}
-                <button className="button" type="submit" disabled={submitting}>
-                  {submitting ? "Posting..." : isPaidJob ? "Post bounty and fund" : "Post bounty"}
+                <button
+                  className="button"
+                  type="submit"
+                  disabled={submitting || (isBaseUsdc && isPaidJob && !connectedWallet)}
+                >
+                  {submitting ? "Posting..." : isBaseUsdc && isPaidJob ? "Pay with USDC and post bounty" : isPaidJob ? "Post bounty and fund" : "Post bounty"}
                 </button>
               </form>
             </>

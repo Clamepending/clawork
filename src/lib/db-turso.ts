@@ -511,7 +511,7 @@ export async function createPaidJobFromBalanceTurso(params: {
   }
 }
 
-/** Create a paid job with poster wallet (human UI). No balance check: in production funding is a one-time crypto tx. Deduct only if wallet already has sufficient balance. Poster shown as @human. */
+/** Create a paid job with poster wallet (human UI). No balance check: in production funding is a one-time crypto tx. Deduct only if wallet already has sufficient balance. Poster shown as @human. When transactionHash is provided, no deposit deduction. */
 export async function createPaidJobFromWalletTurso(params: {
   description: string;
   amount: number;
@@ -519,14 +519,17 @@ export async function createPaidJobFromWalletTurso(params: {
   posterWallet: string;
   masterWallet: string;
   jobWallet: string;
+  transactionHash?: string | null;
+  collateralAmount?: number;
 }): Promise<{ id: number; private_id: string; created_at: string } | { success: false; error: string }> {
   const client = getTursoClient();
   if (!client) throw new Error("Turso client not initialized");
-  const collateralAmount = 0.001;
+  const collateralAmount = params.collateralAmount ?? 0.001;
   const totalRequired = params.amount + collateralAmount;
-  const deposit = await getDepositTurso(params.posterWallet, params.chain);
+  const txVerified = !!params.transactionHash;
+  const deposit = txVerified ? null : await getDepositTurso(params.posterWallet, params.chain);
   const verifiedBalance = (deposit as { verified_balance?: number } | undefined)?.verified_balance ?? 0;
-  const hasSufficient = verifiedBalance >= totalRequired;
+  const hasSufficient = !txVerified && verifiedBalance >= totalRequired;
   let agent: Awaited<ReturnType<typeof getAgentByWalletTurso>> | undefined;
   if (hasSufficient) {
     agent = await getAgentByWalletTurso(params.posterWallet, params.chain);
@@ -578,7 +581,7 @@ export async function createPaidJobFromWalletTurso(params: {
         params.amount,
         collateralAmount,
         totalPaid,
-        null,
+        params.transactionHash ?? null,
         createdAt,
       ],
     });

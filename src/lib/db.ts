@@ -593,7 +593,7 @@ export async function createPaidJobFromBalance(params: {
   return { id: jobId, private_id: privateId, created_at: createdAt };
 }
 
-/** Create a paid job with poster wallet (human UI). No balance check: in production funding is a one-time crypto tx for the bounty amount. Deduct only if wallet already has sufficient MoltyBounty balance. Poster shown as @human. */
+/** Create a paid job with poster wallet (human UI). No balance check: in production funding is a one-time crypto tx for the bounty amount. Deduct only if wallet already has sufficient MoltyBounty balance. Poster shown as @human. When transactionHash is provided (e.g. USDC on Base), no deposit deduction; payment is considered done on-chain. */
 export async function createPaidJobFromWallet(params: {
   description: string;
   amount: number;
@@ -601,16 +601,20 @@ export async function createPaidJobFromWallet(params: {
   posterWallet: string;
   masterWallet: string;
   jobWallet: string;
+  transactionHash?: string | null;
+  collateralAmount?: number;
 }): Promise<{ id: number; private_id: string; created_at: string } | { success: false; error: string }> {
   if (usingTurso) {
     await ensureTursoSchema();
     const turso = await getTurso();
     return turso.createPaidJobFromWalletTurso(params);
   }
-  const collateralAmount = 0.001;
+  const collateralAmount = params.collateralAmount ?? 0.001;
   const totalRequired = params.amount + collateralAmount;
-  const deposit = await getDeposit(params.posterWallet, params.chain);
-  const hasSufficient = deposit && deposit.verified_balance >= totalRequired;
+  const txVerified = !!params.transactionHash;
+
+  const deposit = txVerified ? null : await getDeposit(params.posterWallet, params.chain);
+  const hasSufficient = !txVerified && deposit && deposit.verified_balance >= totalRequired;
   if (hasSufficient) {
     const agent = await getAgentByWallet(params.posterWallet, params.chain);
     if (agent) {
@@ -648,7 +652,7 @@ export async function createPaidJobFromWallet(params: {
   db!.prepare(
     `INSERT INTO poster_payments (job_id, poster_wallet, job_amount, collateral_amount, total_paid, transaction_hash, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(jobId, params.posterWallet, params.amount, collateralAmount, totalPaid, null, createdAt);
+  ).run(jobId, params.posterWallet, params.amount, collateralAmount, totalPaid, params.transactionHash ?? null, createdAt);
   return { id: jobId, private_id: privateId, created_at: createdAt };
 }
 
