@@ -621,6 +621,20 @@ export async function moveHumanPendingToVerifiedTurso(humanId: number, chain: st
   });
 }
 
+export async function creditHumanVerifiedTurso(humanId: number, chain: string, amount: number): Promise<void> {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  await ensureHumanBalanceRowTurso(humanId, chain);
+  const row = await getHumanBalancesTurso(humanId, chain);
+  const newVerified = row.verified_balance + amount;
+  const newBalance = row.balance + amount;
+  const now = new Date().toISOString();
+  await client.execute({
+    sql: "UPDATE human_balances SET verified_balance = ?, balance = ?, updated_at = ? WHERE human_id = ? AND chain = ?",
+    args: [newVerified, newBalance, now, humanId, chain.trim().toLowerCase()],
+  });
+}
+
 export async function processHumanWithdrawalTurso(humanId: number, chain: string, amount: number): Promise<{ success: boolean; error?: string }> {
   const client = getTursoClient();
   if (!client) throw new Error("Turso client not initialized");

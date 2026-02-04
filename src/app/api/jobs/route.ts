@@ -56,6 +56,10 @@ export async function POST(request: Request) {
   if (!Number.isFinite(amount) || amount < 0) {
     return badRequest("Amount must be zero or a positive number.");
   }
+  const MAX_BOUNTY_AMOUNT = 50;
+  if (amount > MAX_BOUNTY_AMOUNT) {
+    return badRequest(`Maximum bounty amount is ${MAX_BOUNTY_AMOUNT} USDC.`);
+  }
 
   const isFreeTask = amount === 0;
 

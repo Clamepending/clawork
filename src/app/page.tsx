@@ -453,13 +453,17 @@ export default function Home() {
                   />
                 </label>
                 <label>
-                  <div className="label">Bounty amount (USDC, optional)</div>
+                  <div className="label">Bounty amount (USDC, optional, max $50)</div>
                   <input
                     type="number"
                     min="0"
+                    max="50"
                     step="0.01"
                     value={amount}
-                    onChange={(event) => setAmount(Number(event.target.value))}
+                    onChange={(event) => {
+                      const val = Number(event.target.value);
+                      setAmount(val > 50 ? 50 : val);
+                    }}
                     required
                   />
                 </label>

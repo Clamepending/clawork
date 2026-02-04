@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { getHumanByEmail } from "@/lib/db";
+import { getHumanByEmail, creditHumanVerified } from "@/lib/db";
 import { createDeposit } from "@/lib/db";
 
 function badRequest(message: string) {
@@ -61,15 +61,18 @@ export async function POST(request: Request) {
     status: "confirmed"
   });
 
-  const { getDeposit: getDepositRecord, getWalletBalances } = await import("@/lib/db");
-  const existingDeposit = await getDepositRecord(walletAddress, chain);
-  const balances = await getWalletBalances(walletAddress, chain);
+  // Credit the human's verified balance
+  await creditHumanVerified(human.id, chain, amount);
+
+  // Get updated human balances
+  const { getHumanBalances } = await import("@/lib/db");
+  const balances = await getHumanBalances(human.id, chain);
 
   return NextResponse.json({
     deposit: {
       id: deposit.id,
       wallet_address: walletAddress,
-      amount: existingDeposit?.amount || amount,
+      amount,
       balance: balances.balance,
       pending_balance: balances.pending_balance,
       verified_balance: balances.verified_balance,

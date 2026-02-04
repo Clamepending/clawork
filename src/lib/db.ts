@@ -701,6 +701,20 @@ export async function moveHumanPendingToVerified(humanId: number, chain: string,
     .run(newPending, newVerified, newBalance, now, humanId, chain.trim().toLowerCase());
 }
 
+export async function creditHumanVerified(humanId: number, chain: string, amount: number): Promise<void> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.creditHumanVerifiedTurso(humanId, chain, amount);
+  }
+  await ensureHumanBalanceRow(humanId, chain);
+  const row = db!.prepare("SELECT verified_balance, balance FROM human_balances WHERE human_id = ? AND chain = ?").get(humanId, chain.trim().toLowerCase()) as { verified_balance: number; balance: number };
+  const newVerified = row.verified_balance + amount;
+  const newBalance = row.balance + amount;
+  const now = new Date().toISOString();
+  db!.prepare("UPDATE human_balances SET verified_balance = ?, balance = ?, updated_at = ? WHERE human_id = ? AND chain = ?")
+    .run(newVerified, newBalance, now, humanId, chain.trim().toLowerCase());
+}
+
 export async function processHumanWithdrawal(humanId: number, chain: string, amount: number): Promise<{ success: boolean; error?: string }> {
   if (usingTurso) {
     const turso = await getTurso();
