@@ -35,10 +35,36 @@ export async function verifyBaseUsdcTransfer(params: {
   const expectedTo = params.expectedTo.toLowerCase();
   const requiredRaw = BigInt(Math.ceil(params.requiredUsdc * 10 ** USDC_DECIMALS));
 
+  // Retry getting receipt with exponential backoff (transaction may not be confirmed yet)
+  let receipt: any = null;
+  const maxRetries = 10;
+  const initialDelay = 1000; // 1 second
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      receipt = await client.getTransactionReceipt({ hash: txHash });
+      if (receipt) break; // Found receipt, exit retry loop
+    } catch (e) {
+      const isNotFound = e instanceof Error && (
+        e.message.includes("could not be found") ||
+        e.message.includes("not processed") ||
+        e.message.includes("Transaction receipt")
+      );
+      if (!isNotFound) {
+        // Not a "not found" error, rethrow
+        throw e;
+      }
+      // Transaction not confirmed yet, wait and retry
+      if (attempt < maxRetries - 1) {
+        const delay = initialDelay * Math.pow(2, attempt); // Exponential backoff: 1s, 2s, 4s, 8s...
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        continue;
+      }
+    }
+  }
+
   try {
-    const receipt = await client.getTransactionReceipt({ hash: txHash });
     if (!receipt || receipt.status !== "success") {
-      return { valid: false, error: "Transaction not found or failed." };
+      return { valid: false, error: "Transaction not found or failed. Please wait a moment and try again." };
     }
 
     const logs = receipt.logs;
@@ -93,6 +119,9 @@ export async function verifyBaseUsdcTransfer(params: {
     };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
+    if (message.includes("could not be found") || message.includes("not processed")) {
+      return { valid: false, error: "Transaction not confirmed yet. Please wait a few seconds and try submitting again, or check the transaction on BaseScan." };
+    }
     return { valid: false, error: `Verification failed: ${message}` };
   }
 }
