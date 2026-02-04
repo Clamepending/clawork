@@ -58,10 +58,6 @@ export default function HumanDashboardPage() {
   const [withdrawDestination, setWithdrawDestination] = useState("");
   const [withdrawing, setWithdrawing] = useState(false);
   const [withdrawMessage, setWithdrawMessage] = useState<string | null>(null);
-  const [savedWallets, setSavedWallets] = useState<Array<{ id: number; wallet_address: string; chain: string; label: string | null }>>([]);
-  const [selectedWallet, setSelectedWallet] = useState<string>("");
-  const [newWalletAddress, setNewWalletAddress] = useState("");
-  const [newWalletLabel, setNewWalletLabel] = useState("");
   const [depositAmount, setDepositAmount] = useState("");
   const [depositing, setDepositing] = useState(false);
   const [depositMessage, setDepositMessage] = useState<string | null>(null);
@@ -134,28 +130,6 @@ export default function HumanDashboardPage() {
     return () => clearInterval(interval);
   }, [session]);
 
-  // Fetch saved wallets
-  useEffect(() => {
-    if (!session?.user?.email) return;
-    async function loadWallets() {
-      try {
-        const res = await fetch("/api/human/wallets?chain=base-usdc");
-        if (res.ok) {
-          const data = await res.json();
-          setSavedWallets(data.wallets || []);
-          // Set selected wallet to first saved wallet or linked wallet
-          if (data.wallets && data.wallets.length > 0) {
-            setSelectedWallet(data.wallets[0].wallet_address);
-          } else if (walletAddress) {
-            setSelectedWallet(walletAddress);
-          }
-        }
-      } catch (error) {
-        console.error("Failed to load wallets:", error);
-      }
-    }
-    loadWallets();
-  }, [session, walletAddress]);
 
   // Fetch master wallet
   useEffect(() => {
@@ -664,34 +638,6 @@ export default function HumanDashboardPage() {
                   {balances && balances.verified_balance > 0 && (
                     <div style={{ marginBottom: "16px", padding: "12px", background: "rgba(255,255,255,0.04)", borderRadius: "8px", border: "1px solid var(--card-border)" }}>
                       <div style={{ fontSize: "0.85rem", color: "var(--muted)", marginBottom: "8px", fontWeight: 600 }}>Withdraw</div>
-                      <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "8px" }}>From Wallet</div>
-                      <select
-                        value={selectedWallet}
-                        onChange={(e) => {
-                          setSelectedWallet(e.target.value);
-                          setWithdrawDestination(e.target.value);
-                        }}
-                        style={{ 
-                          fontFamily: "monospace",
-                          borderRadius: "8px",
-                          padding: "8px 12px",
-                          background: "rgba(0, 0, 0, 0.2)",
-                          border: "1px solid var(--card-border)",
-                          width: "100%",
-                          marginBottom: "8px",
-                          fontSize: "0.85rem",
-                          color: "var(--ink)"
-                        }}
-                      >
-                        {walletAddress && (
-                          <option value={walletAddress}>{walletAddress.slice(0, 8)}...{walletAddress.slice(-6)} (Linked)</option>
-                        )}
-                        {savedWallets.map((w) => (
-                          <option key={w.id} value={w.wallet_address}>
-                            {w.label || `${w.wallet_address.slice(0, 8)}...${w.wallet_address.slice(-6)}`}
-                          </option>
-                        ))}
-                      </select>
                       <input
                         type="number"
                         value={withdrawAmount}
@@ -716,7 +662,7 @@ export default function HumanDashboardPage() {
                         type="text"
                         value={withdrawDestination}
                         onChange={(e) => setWithdrawDestination(e.target.value)}
-                        placeholder={selectedWallet || "0x..."}
+                        placeholder={walletAddress || "0x..."}
                         style={{ 
                           fontFamily: "monospace",
                           borderRadius: "8px",
@@ -728,10 +674,10 @@ export default function HumanDashboardPage() {
                           border: "1px solid var(--card-border)"
                         }}
                       />
-                      {selectedWallet && withdrawDestination !== selectedWallet && (
+                      {walletAddress && withdrawDestination !== walletAddress && (
                         <button
                           type="button"
-                          onClick={() => setWithdrawDestination(selectedWallet)}
+                          onClick={() => setWithdrawDestination(walletAddress)}
                           style={{
                             fontSize: "0.75rem",
                             color: "var(--accent)",
@@ -743,7 +689,7 @@ export default function HumanDashboardPage() {
                             marginBottom: "8px",
                           }}
                         >
-                          Use selected wallet
+                          Use linked wallet
                         </button>
                       )}
                       <button
@@ -776,7 +722,7 @@ export default function HumanDashboardPage() {
                             if (res.ok) {
                               setWithdrawMessage(data.message || "Withdrawal successful!");
                               setWithdrawAmount("");
-                              setWithdrawDestination(selectedWallet);
+                              setWithdrawDestination(walletAddress || "");
                               // Refresh balances
                               const balanceRes = await fetch("/api/human/balance?chain=base-usdc");
                               if (balanceRes.ok) {
@@ -809,165 +755,6 @@ export default function HumanDashboardPage() {
                     </div>
                   )}
 
-                  {/* Connected Wallets List */}
-                  <div style={{ marginTop: "16px", padding: "12px", background: "rgba(255,255,255,0.04)", borderRadius: "8px", border: "1px solid var(--card-border)" }}>
-                    <div style={{ fontSize: "0.85rem", color: "var(--muted)", marginBottom: "12px", fontWeight: 600 }}>Connected Wallets</div>
-                    
-                    {/* Add New Wallet */}
-                    <div style={{ marginBottom: "12px", padding: "8px", background: "rgba(255,255,255,0.02)", borderRadius: "6px", border: "1px solid var(--card-border)" }}>
-                      <input
-                        type="text"
-                        value={newWalletAddress}
-                        onChange={(e) => setNewWalletAddress(e.target.value)}
-                        placeholder="New wallet address (0x...)"
-                        style={{ 
-                          fontFamily: "monospace",
-                          borderRadius: "6px",
-                          padding: "6px 10px",
-                          width: "100%",
-                          marginBottom: "6px",
-                          fontSize: "0.8rem",
-                          background: "rgba(0, 0, 0, 0.2)",
-                          border: "1px solid var(--card-border)"
-                        }}
-                      />
-                      <input
-                        type="text"
-                        value={newWalletLabel}
-                        onChange={(e) => setNewWalletLabel(e.target.value)}
-                        placeholder="Label (optional)"
-                        style={{ 
-                          borderRadius: "6px",
-                          padding: "6px 10px",
-                          width: "100%",
-                          marginBottom: "6px",
-                          fontSize: "0.8rem",
-                          background: "rgba(0, 0, 0, 0.2)",
-                          border: "1px solid var(--card-border)"
-                        }}
-                      />
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          if (!newWalletAddress.trim()) return;
-                          try {
-                            const res = await fetch("/api/human/wallets", {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({
-                                walletAddress: newWalletAddress.trim(),
-                                chain: "base-usdc",
-                                label: newWalletLabel.trim() || null,
-                              }),
-                            });
-                            const data = await res.json();
-                            if (res.ok) {
-                              setSavedWallets(data.wallets || []);
-                              setSelectedWallet(newWalletAddress.trim());
-                              setNewWalletAddress("");
-                              setNewWalletLabel("");
-                            } else {
-                              alert(data.error || "Failed to save wallet");
-                            }
-                          } catch (error: any) {
-                            alert(`Failed to save wallet: ${error.message}`);
-                          }
-                        }}
-                        className="button secondary"
-                        style={{ width: "100%", fontSize: "0.8rem", padding: "6px" }}
-                      >
-                        Add Wallet
-                      </button>
-                    </div>
-
-                    {/* List of Connected Wallets */}
-                    <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                      {walletAddress && (
-                        <div style={{ 
-                          display: "flex", 
-                          justifyContent: "space-between", 
-                          alignItems: "center",
-                          padding: "8px 12px",
-                          background: "rgba(255,255,255,0.02)",
-                          borderRadius: "6px",
-                          border: "1px solid var(--card-border)"
-                        }}>
-                          <div>
-                            <div style={{ fontFamily: "monospace", fontSize: "0.85rem", color: "var(--ink)" }}>
-                              {walletAddress.slice(0, 8)}...{walletAddress.slice(-6)}
-                            </div>
-                            <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>Linked Wallet</div>
-                          </div>
-                        </div>
-                      )}
-                      {savedWallets.map((w) => (
-                        <div 
-                          key={w.id}
-                          style={{ 
-                            display: "flex", 
-                            justifyContent: "space-between", 
-                            alignItems: "center",
-                            padding: "8px 12px",
-                            background: "rgba(255,255,255,0.02)",
-                            borderRadius: "6px",
-                            border: "1px solid var(--card-border)"
-                          }}
-                        >
-                          <div>
-                            <div style={{ fontFamily: "monospace", fontSize: "0.85rem", color: "var(--ink)" }}>
-                              {w.wallet_address.slice(0, 8)}...{w.wallet_address.slice(-6)}
-                            </div>
-                            {w.label && (
-                              <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>{w.label}</div>
-                            )}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              if (confirm("Delete this wallet?")) {
-                                try {
-                                  const res = await fetch(`/api/human/wallets?id=${w.id}`, {
-                                    method: "DELETE",
-                                  });
-                                  if (res.ok) {
-                                    const walletsRes = await fetch("/api/human/wallets?chain=base-usdc");
-                                    if (walletsRes.ok) {
-                                      const walletsData = await walletsRes.json();
-                                      setSavedWallets(walletsData.wallets || []);
-                                      if (selectedWallet === w.wallet_address && walletAddress) {
-                                        setSelectedWallet(walletAddress);
-                                      }
-                                    }
-                                  } else {
-                                    const data = await res.json();
-                                    alert(data.error || "Failed to delete wallet");
-                                  }
-                                } catch (error: any) {
-                                  alert(`Failed to delete wallet: ${error.message}`);
-                                }
-                              }
-                            }}
-                            style={{
-                              background: "rgba(255, 59, 59, 0.2)",
-                              border: "1px solid var(--accent)",
-                              color: "var(--accent)",
-                              borderRadius: "4px",
-                              padding: "4px 8px",
-                              fontSize: "0.75rem",
-                              cursor: "pointer",
-                            }}
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      ))}
-                      {!walletAddress && savedWallets.length === 0 && (
-                        <div style={{ fontSize: "0.85rem", color: "var(--muted)", textAlign: "center", padding: "12px" }}>
-                          No wallets connected. Add one above.
-                        </div>
-                      )}
-                    </div>
-                  </div>
                 </>
               )}
             </div>
