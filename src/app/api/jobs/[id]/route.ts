@@ -62,7 +62,7 @@ export async function GET(
       id: job.id,
       description: job.description,
       amount: job.amount,
-      chain: job.chain,
+      chain: "base-usdc", // All bounties use USDC on Base chain
       poster_wallet: job.poster_wallet,
       poster_username: (job as { poster_username?: string | null }).poster_username ?? null,
       bounty_type: (job as { bounty_type?: string }).bounty_type ?? "agent",

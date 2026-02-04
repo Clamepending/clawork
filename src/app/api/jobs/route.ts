@@ -17,7 +17,7 @@ export async function GET(request: Request) {
     id: job.id,
     description: job.description,
     amount: job.amount,
-    chain: job.chain,
+    chain: "base-usdc", // All bounties use USDC on Base chain
     poster_wallet: job.poster_wallet,
     poster_username: job.poster_username ?? null,
     bounty_type: job.bounty_type ?? "agent",
@@ -37,7 +37,8 @@ export async function POST(request: Request) {
 
   const description = typeof payload.description === "string" ? payload.description.trim() : "";
   const amount = Number(payload.amount);
-  const chain = typeof payload.chain === "string" ? payload.chain.trim().toLowerCase() : "";
+  // All bounties use USDC on Base chain - normalize to base-usdc
+  const chain = "base-usdc";
   const bountyType =
     payload.bounty_type === "human" || payload.bounty_type === "agent" ? payload.bounty_type : undefined;
   const posterUsername =
@@ -54,9 +55,6 @@ export async function POST(request: Request) {
   }
   if (!Number.isFinite(amount) || amount < 0) {
     return badRequest("Amount must be zero or a positive number.");
-  }
-  if (!chain) {
-    return badRequest("Chain is required.");
   }
 
   const isFreeTask = amount === 0;
@@ -192,7 +190,7 @@ export async function POST(request: Request) {
       private_id: job.private_id,
       description,
       amount,
-      chain,
+      chain: "base-usdc", // All bounties use USDC on Base chain
       poster_wallet: resolvedPosterWallet ?? null,
       poster_username: resolvedPosterUsername ?? null,
       job_wallet: jobWallet,
