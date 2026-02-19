@@ -282,6 +282,20 @@ export async function initTursoSchema() {
   } catch (e: any) {
     if (!e.message?.includes("already exists")) console.error(e.message);
   }
+  try {
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS stripe_human_deposits (
+        stripe_payment_intent_id TEXT NOT NULL PRIMARY KEY,
+        human_id INTEGER NOT NULL,
+        amount_usd REAL NOT NULL,
+        chain TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (human_id) REFERENCES humans(id)
+      )
+    `);
+  } catch (e: any) {
+    if (!e.message?.includes("already exists")) console.error(e.message);
+  }
 }
 
 // Generate secure private ID
@@ -633,6 +647,29 @@ export async function creditHumanVerifiedTurso(humanId: number, chain: string, a
     sql: "UPDATE human_balances SET verified_balance = ?, balance = ?, updated_at = ? WHERE human_id = ? AND chain = ?",
     args: [newVerified, newBalance, now, humanId, chain.trim().toLowerCase()],
   });
+}
+
+export async function recordStripeHumanDepositIfNewTurso(
+  paymentIntentId: string,
+  humanId: number,
+  amountUsd: number,
+  chain: string
+): Promise<boolean> {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+  const now = new Date().toISOString();
+  try {
+    await client.execute({
+      sql: `INSERT INTO stripe_human_deposits (stripe_payment_intent_id, human_id, amount_usd, chain, created_at)
+            VALUES (?, ?, ?, ?, ?)`,
+      args: [paymentIntentId, humanId, amountUsd, chain.trim().toLowerCase(), now],
+    });
+    return true;
+  } catch (err: unknown) {
+    const e = err as { message?: string };
+    if (e?.message?.includes("UNIQUE") || e?.message?.includes("constraint") || e?.message?.includes("primary key")) return false;
+    throw err;
+  }
 }
 
 export async function processHumanWithdrawalTurso(humanId: number, chain: string, amount: number): Promise<{ success: boolean; error?: string }> {
@@ -1206,6 +1243,18 @@ export async function getSubmissionByJobPrivateIdTurso(privateId: string) {
   const job = await getJobByPrivateIdTurso(privateId);
   if (!job) return undefined;
   return getSubmissionTurso(job.id);
+}
+
+export async function listSubmissionsTurso(jobId: number) {
+  const client = getTursoClient();
+  if (!client) throw new Error("Turso client not initialized");
+
+  const result = await client.execute({
+    sql: "SELECT * FROM submissions WHERE job_id = ? ORDER BY created_at DESC",
+    args: [jobId],
+  });
+
+  return rowsToObjects(result.rows);
 }
 
 export async function updateSubmissionResponseTurso(submissionId: number, response: string) {
@@ -1968,17 +2017,14 @@ export async function checkAndApplyLateRatingPenaltiesTurso() {
   if (!client) throw new Error("Turso client not initialized");
 
   const now = new Date().toISOString();
-  // For humans: include submissions that are past deadline AND (not rated OR rated < 2)
-  // This ensures humans get auto-verified after 24 hours even if rated < 2 stars
+  // Only auto-verify submissions that are past deadline AND have not been rated at all.
+  // 1-star rejections are final (bounty reopens for new submissions).
   const result = await client.execute({
     sql: `
       SELECT s.id, s.job_id, s.agent_wallet, s.agent_id, s.human_id, s.rating_deadline, s.rating, j.chain, j.poster_wallet, j.amount
       FROM submissions s
       JOIN jobs j ON s.job_id = j.id
-      WHERE s.rating_deadline < ? AND (
-        (s.rating IS NULL) OR 
-        (s.human_id IS NOT NULL AND s.rating < 2)
-      )
+      WHERE s.rating_deadline < ? AND s.rating IS NULL
     `,
     args: [now],
   });
@@ -1999,23 +2045,7 @@ export async function checkAndApplyLateRatingPenaltiesTurso() {
   for (const sub of lateSubmissions) {
     if (sub.amount > 0) {
       if (sub.human_id != null) {
-        // For humans: automatically move pending to verified after 24 hours
-        // This applies even if rated < 2 stars (we restore the deducted amount)
-        const humanBalances = await getHumanBalancesTurso(sub.human_id, sub.chain);
-        const pendingToMove = Math.min(humanBalances.pending_balance, sub.amount);
-        const amountToAdd = sub.amount; // Always add the full amount to verified
-        
-        // Deduct from pending (may be less than amount if already deducted)
-        const newPending = Math.max(0, humanBalances.pending_balance - sub.amount);
-        // Add full amount to verified (restores if it was deducted)
-        const newVerified = humanBalances.verified_balance + amountToAdd;
-        // Adjust total balance: subtract what we removed from pending, add to verified
-        const newBalance = humanBalances.balance - pendingToMove + amountToAdd;
-        const now = new Date().toISOString();
-        await client.execute({
-          sql: "UPDATE human_balances SET pending_balance = ?, verified_balance = ?, balance = ?, updated_at = ? WHERE human_id = ? AND chain = ?",
-          args: [newPending, newVerified, newBalance, now, sub.human_id, sub.chain.trim().toLowerCase()],
-        });
+        await moveHumanPendingToVerifiedTurso(sub.human_id, sub.chain, sub.amount);
       } else if (sub.agent_id != null) {
         await moveAgentPendingToVerifiedTurso(sub.agent_id, sub.chain, sub.amount);
       } else {
@@ -2038,6 +2068,8 @@ export async function checkAndApplyLateRatingPenaltiesTurso() {
         args: [sub.id],
       });
     }
+    // Set job status to completed (claimer gets paid via auto-verify)
+    await updateJobStatusTurso(sub.job_id, "completed");
   }
 
   return lateSubmissions.length;
@@ -2100,6 +2132,12 @@ export async function deleteJobTurso(privateId: string, posterWallet: string) {
       });
     }
   }
+
+  // Delete submissions (rejected ones from multi-submission flow)
+  await client.execute({
+    sql: "DELETE FROM submissions WHERE job_id = ?",
+    args: [job.id],
+  });
 
   // Delete poster payment record
   await client.execute({

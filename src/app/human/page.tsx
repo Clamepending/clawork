@@ -1,8 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { signIn, signOut, useSession } from "next-auth/react";
 import Link from "next/link";
+import { loadStripe } from "@stripe/stripe-js";
+import { Elements } from "@stripe/react-stripe-js";
+import { StripeDepositForm } from "@/app/components/StripeDepositForm";
 
 type HumanProfile = {
   id: number;
@@ -63,6 +66,13 @@ export default function HumanDashboardPage() {
   const [depositing, setDepositing] = useState(false);
   const [depositMessage, setDepositMessage] = useState<string | null>(null);
   const [masterWallet, setMasterWallet] = useState<string | null>(null);
+  const [stripeClientSecret, setStripeClientSecret] = useState<string | null>(null);
+  const [stripeAmountUsd, setStripeAmountUsd] = useState(0);
+  const [stripeDepositAmount, setStripeDepositAmount] = useState("");
+  const [stripeLoading, setStripeLoading] = useState(false);
+  const [stripeError, setStripeError] = useState<string | null>(null);
+  const stripePk = typeof process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY === "string" ? process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY : "";
+  const stripePromise = useMemo(() => (stripePk ? loadStripe(stripePk) : null), [stripePk]);
 
   useEffect(() => {
     fetch("/api/auth/test")
@@ -130,6 +140,29 @@ export default function HumanDashboardPage() {
     const interval = setInterval(loadBalances, 10000); // Refresh every 10 seconds
     return () => clearInterval(interval);
   }, [session]);
+
+  // After Stripe redirect (e.g. 3DS), refresh balance and show success
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("stripe") === "success") {
+      fetch("/api/human/balance?chain=base-usdc")
+        .then((res) => res.ok ? res.json() : null)
+        .then((data) => {
+          if (data) {
+            setBalances({
+              balance: data.balance ?? 0,
+              verified_balance: data.verified_balance ?? 0,
+              pending_balance: data.pending_balance ?? 0,
+            });
+            setDepositMessage("Payment successful. Your balance has been updated.");
+            setTimeout(() => setDepositMessage(null), 5000);
+          }
+        })
+        .catch(() => {});
+      window.history.replaceState({}, "", "/human");
+    }
+  }, []);
 
 
   // Fetch master wallet
@@ -632,6 +665,96 @@ export default function HumanDashboardPage() {
                       >
                         {depositing ? "Confirm in wallet…" : masterWallet ? `Send USDC to: ${masterWallet.slice(0, 8)}…${masterWallet.slice(-6)}` : `Deposit ${depositAmount || "0"} USDC`}
                       </button>
+                    </div>
+                  )}
+
+                  {/* Pay with card / Google Pay */}
+                  {stripePk && (
+                    <div style={{ marginBottom: "16px", padding: "12px", background: "rgba(255,255,255,0.04)", borderRadius: "8px", border: "1px solid var(--card-border)" }}>
+                      <div style={{ fontSize: "0.85rem", color: "var(--muted)", marginBottom: "8px", fontWeight: 600 }}>Add balance with card or Google Pay</div>
+                      {!stripeClientSecret ? (
+                        <>
+                          <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "8px" }}>
+                            Pay in USD; we credit your balance 1:1 as USDC (min $1, max $500).
+                          </div>
+                          <input
+                            type="number"
+                            value={stripeDepositAmount}
+                            onChange={(e) => { setStripeDepositAmount(e.target.value); setStripeError(null); }}
+                            placeholder="Amount (USD)"
+                            min="1"
+                            max="500"
+                            step="1"
+                            style={{
+                              fontFamily: "monospace",
+                              borderRadius: "8px",
+                              padding: "8px 12px",
+                              width: "100%",
+                              marginBottom: "8px",
+                              fontSize: "0.85rem",
+                              background: "rgba(0, 0, 0, 0.2)",
+                              border: "1px solid var(--card-border)",
+                            }}
+                          />
+                          {stripeError && <div style={{ color: "var(--error)", fontSize: "0.8rem", marginBottom: "8px" }}>{stripeError}</div>}
+                          <button
+                            type="button"
+                            disabled={stripeLoading || !stripeDepositAmount || parseFloat(stripeDepositAmount) < 1 || parseFloat(stripeDepositAmount) > 500}
+                            className="button"
+                            style={{ width: "100%", opacity: stripeLoading || !stripeDepositAmount ? 0.6 : 1 }}
+                            onClick={async () => {
+                              const amount = parseFloat(stripeDepositAmount);
+                              if (amount < 1 || amount > 500) return;
+                              setStripeLoading(true);
+                              setStripeError(null);
+                              try {
+                                const res = await fetch("/api/human/deposit/create-payment-intent", {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ amount }),
+                                });
+                                const data = await res.json();
+                                if (res.ok && data.clientSecret) {
+                                  setStripeAmountUsd(amount);
+                                  setStripeClientSecret(data.clientSecret);
+                                } else {
+                                  setStripeError(data.error || "Could not start payment");
+                                }
+                              } catch {
+                                setStripeError("Network error");
+                              } finally {
+                                setStripeLoading(false);
+                              }
+                            }}
+                          >
+                            {stripeLoading ? "Loading…" : "Pay with card or Google Pay"}
+                          </button>
+                        </>
+                      ) : stripePromise && stripeClientSecret ? (
+                        <div style={{ marginTop: "8px" }}>
+                          <Elements stripe={stripePromise} options={{ clientSecret: stripeClientSecret }}>
+                            <StripeDepositForm
+                              amountUsd={stripeAmountUsd}
+                              onSuccess={async () => {
+                                setStripeClientSecret(null);
+                                setStripeDepositAmount("");
+                                setDepositMessage(`Added ${stripeAmountUsd} USDC to your balance.`);
+                                setTimeout(() => setDepositMessage(null), 5000);
+                                const balanceRes = await fetch("/api/human/balance?chain=base-usdc");
+                                if (balanceRes.ok) {
+                                  const balanceData = await balanceRes.json();
+                                  setBalances({
+                                    balance: balanceData.balance ?? 0,
+                                    verified_balance: balanceData.verified_balance ?? 0,
+                                    pending_balance: balanceData.pending_balance ?? 0,
+                                  });
+                                }
+                              }}
+                              onCancel={() => { setStripeClientSecret(null); setStripeError(null); }}
+                            />
+                          </Elements>
+                        </div>
+                      ) : null}
                     </div>
                   )}
 

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getJob, getJobByPrivateId, getSubmission, getSubmissionByJobPrivateId, deleteJob, getAgentByUsername } from "@/lib/db";
+import { getJob, getJobByPrivateId, getSubmission, getSubmissionByJobPrivateId, listSubmissions, deleteJob, getAgentByUsername } from "@/lib/db";
 import { verifyPrivateKey } from "@/lib/agent-auth";
 
 export async function GET(
@@ -57,6 +57,22 @@ export async function GET(
         : null
     : null;
 
+  // For private key views, include all submissions (to show rejection history)
+  let allSubmissions: Array<Record<string, unknown>> | undefined;
+  if (!isNumericId && hasSubmission) {
+    const subs = await listSubmissions(job.id);
+    allSubmissions = subs.map((s: { id: number; response: string; agent_wallet: string; agent_username?: string | null; human_display_name?: string | null; status: string; rating: number | null; created_at: string }) => ({
+      id: s.id,
+      response: s.response,
+      agent_wallet: s.agent_wallet,
+      agent_username: s.agent_username ?? null,
+      human_display_name: (s as Record<string, unknown>).human_display_name ?? null,
+      status: s.status,
+      rating: s.rating,
+      created_at: s.created_at,
+    }));
+  }
+
   return NextResponse.json({
     job: {
       id: job.id,
@@ -71,7 +87,8 @@ export async function GET(
       created_at: job.created_at,
       is_free: isFree
     },
-    submission: submissionPayload
+    submission: submissionPayload,
+    all_submissions: allSubmissions,
   });
 }
 

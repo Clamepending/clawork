@@ -30,6 +30,27 @@ type Submission = {
   created_at: string;
 };
 
+function getClaimerLabel(sub: Submission, chain?: string) {
+  if (sub.human_display_name) {
+    return <strong style={{ color: "var(--accent-green)" }}>{sub.human_display_name}</strong>;
+  }
+  if (sub.agent_username) {
+    return (
+      <a
+        href={`/agent?username=${encodeURIComponent(sub.agent_username)}&chain=${encodeURIComponent(chain || "base-usdc")}`}
+        style={{ color: "var(--accent-green)", fontWeight: 600, textDecoration: "underline" }}
+      >
+        @{sub.agent_username}
+      </a>
+    );
+  }
+  return (
+    <span style={{ fontFamily: "monospace", color: "var(--muted)" }}>
+      {sub.agent_wallet.slice(0, 8)}...{sub.agent_wallet.slice(-6)}
+    </span>
+  );
+}
+
 export default function BountyDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -38,6 +59,7 @@ export default function BountyDetailPage() {
 
   const [job, setJob] = useState<Job | null>(null);
   const [submission, setSubmission] = useState<Submission | null>(null);
+  const [allSubmissions, setAllSubmissions] = useState<Submission[]>([]);
   const [loading, setLoading] = useState(true);
   const [rating, setRating] = useState(0);
   const [hoverRating, setHoverRating] = useState(0);
@@ -55,6 +77,10 @@ export default function BountyDetailPage() {
   const canViewResponseAndRate = isPrivateKeyView || isFreeTask;
   // Show rating form + Submit button only when viewing with private key and submission not yet rated (ratings are immutable).
   const canSetRating = isPrivateKeyView && submission != null && submission.rating === null;
+  // Rejected submissions (1-star) that reopened the bounty
+  const rejectedSubmissions = allSubmissions.filter(s => s.rating === 1);
+  // Bounty is open for new claims (including after rejections)
+  const bountyIsOpen = job?.status === "open";
 
   useEffect(() => {
     loadJob();
@@ -76,6 +102,7 @@ export default function BountyDetailPage() {
       const data = await res.json();
       setJob(data.job);
       setSubmission(data.submission);
+      setAllSubmissions(data.all_submissions ?? []);
       if (data.submission?.rating) {
         setRating(data.submission.rating);
       }
@@ -96,7 +123,8 @@ export default function BountyDetailPage() {
     setSubmittingClaim(true);
     setClaimError(null);
     try {
-      const res = await fetch(`/api/jobs/${jobId}/submit`, {
+      const submitId = job?.id ?? jobId;
+      const res = await fetch(`/api/jobs/${submitId}/submit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ response: text }),
@@ -143,7 +171,12 @@ export default function BountyDetailPage() {
         return;
       }
 
-      setRatingSuccess("Rating submitted successfully!");
+      if (data.bounty_reopened) {
+        setRatingSuccess("Submission rejected. Bounty is now open for new submissions.");
+      } else {
+        setRatingSuccess("Rating submitted successfully!");
+      }
+      setRating(0);
       await loadJob();
     } catch (error) {
       setRatingError("Failed to submit rating.");
@@ -209,26 +242,52 @@ export default function BountyDetailPage() {
           <p style={{ whiteSpace: "pre-wrap", lineHeight: "1.6" }}>{job.description}</p>
         </div>
 
-        {!canViewResponseAndRate && submission ? (
+        {/* Rejected submissions history (private key view) */}
+        {isPrivateKeyView && rejectedSubmissions.length > 0 && (
+          <div className="card" style={{ marginTop: "24px" }}>
+            <h2>Rejected Submissions ({rejectedSubmissions.length})</h2>
+            <p style={{ color: "var(--muted)", fontSize: "0.9rem", marginBottom: "16px" }}>
+              These submissions were rated 1 star and rejected. The bounty was reopened for new submissions.
+            </p>
+            {rejectedSubmissions.map((sub) => (
+              <div
+                key={sub.id}
+                style={{
+                  background: "rgba(0,0,0,0.15)",
+                  padding: "12px 16px",
+                  borderRadius: "10px",
+                  border: "1px solid rgba(255,255,255,0.06)",
+                  marginBottom: "10px",
+                }}
+              >
+                <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
+                  <span style={{ fontSize: "0.9rem" }}>
+                    {getClaimerLabel(sub, job.chain)}
+                  </span>
+                  <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
+                    {new Date(sub.created_at).toLocaleString()}
+                  </span>
+                  <span style={{ fontSize: "0.8rem", color: "#ef4444", fontWeight: 600 }}>
+                    Rejected (1 star)
+                  </span>
+                </div>
+                {sub.response && (
+                  <div style={{ whiteSpace: "pre-wrap", lineHeight: "1.5", fontSize: "0.9rem", color: "var(--muted)" }}>
+                    {sub.response.length > 200 ? sub.response.slice(0, 200) + "..." : sub.response}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Active submission with rating form (private key or free bounty view) */}
+        {!canViewResponseAndRate && submission && submission.rating !== 1 ? (
           <div className="card" style={{ marginTop: "24px" }}>
             <h2>Bounty claimed</h2>
             <div style={{ marginBottom: "12px" }}>
               <span style={{ fontSize: "1rem" }}>
-                Claimed by{" "}
-                {submission.human_display_name ? (
-                  <strong style={{ color: "var(--accent-green)" }}>{submission.human_display_name}</strong>
-                ) : submission.agent_username ? (
-                  <a
-                    href={`/agent?username=${encodeURIComponent(submission.agent_username)}&chain=${encodeURIComponent(job.chain)}`}
-                    style={{ color: "var(--accent-green)", fontWeight: 600, textDecoration: "underline" }}
-                  >
-                    @{submission.agent_username}
-                  </a>
-                ) : (
-                  <span style={{ fontFamily: "monospace", color: "var(--muted)" }}>
-                    {submission.agent_wallet.slice(0, 8)}...{submission.agent_wallet.slice(-6)}
-                  </span>
-                )}
+                Claimed by {getClaimerLabel(submission, job.chain)}
               </span>
               <span style={{ fontSize: "0.9rem", color: "var(--muted)", marginLeft: "8px" }}>
                 {submission.created_at ? ` · ${new Date(submission.created_at).toLocaleString()}` : ""}
@@ -250,9 +309,9 @@ export default function BountyDetailPage() {
               Paid bounty responses are only visible to the poster. Use the bounty private key (from when you posted) in the &quot;Check bounty status&quot; section on the home page to view the response and rate the submission.
             </p>
           </div>
-        ) : canViewResponseAndRate && submission && submission.response != null ? (
+        ) : canViewResponseAndRate && submission && submission.response != null && submission.rating !== 1 ? (
           <div className="card" style={{ marginTop: "24px" }}>
-            <h2>Agent Response</h2>
+            <h2>Submission</h2>
             <div style={{ marginBottom: "16px" }}>
               <div className="meta">
                 <span>
@@ -293,7 +352,7 @@ export default function BountyDetailPage() {
 
             <div>
               <h3 style={{ marginBottom: "12px" }}>{canSetRating ? "Rate this submission" : "Rating"}</h3>
-              <div style={{ display: "flex", alignItems: "center", gap: "16px", marginBottom: "16px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "16px", marginBottom: "16px", flexWrap: "wrap" }}>
                 {canSetRating ? (
                   <>
                     <div style={{ display: "flex", gap: "4px" }}>
@@ -313,8 +372,6 @@ export default function BountyDetailPage() {
                             color:
                               star <= (hoverRating || rating)
                                 ? "var(--accent)"
-                                : submission.rating != null && submission.rating > 0 && star <= submission.rating
-                                ? "var(--accent)"
                                 : "var(--muted)",
                             transition: "color 0.2s"
                           }}
@@ -323,14 +380,11 @@ export default function BountyDetailPage() {
                         </button>
                       ))}
                     </div>
-                    {submission.rating != null && submission.rating > 0 && (
-                      <span style={{ color: "var(--muted)" }}>
-                        (Currently rated: {submission.rating}/5)
-                      </span>
-                    )}
                     {job.amount > 0 && (
                       <p style={{ fontSize: "0.9rem", color: "var(--muted)", marginTop: "12px", marginBottom: 0, maxWidth: "560px" }}>
-                        2 stars and above will pay the completer the reward. 1 star means no payout — only rate 1 star if the job was not completed. You will receive your collateral back after you rate regardless of your feedback.
+                        <strong>1 star = reject:</strong> No payout, bounty reopens for new submissions. Your collateral stays locked until a submission is accepted.
+                        <br />
+                        <strong>2+ stars = accept:</strong> Completer receives the reward. You get your collateral back.
                       </p>
                     )}
                   </>
@@ -363,9 +417,24 @@ export default function BountyDetailPage() {
               )}
             </div>
           </div>
-        ) : job.bounty_type === "human" && job.status === "open" ? (
+        ) : null}
+
+        {/* Rating success/rejection message when bounty just reopened */}
+        {ratingSuccess && bountyIsOpen && (
+          <div className="card" style={{ marginTop: "24px", borderColor: "var(--accent-green)" }}>
+            <p style={{ color: "var(--accent-green)", marginBottom: 0 }}>{ratingSuccess}</p>
+          </div>
+        )}
+
+        {/* Claim form for human bounties when open */}
+        {job.bounty_type === "human" && bountyIsOpen && (!submission || submission.rating === 1) ? (
           <div className="card" style={{ marginTop: "24px" }}>
             <h2>Claim this human bounty</h2>
+            {rejectedSubmissions.length > 0 && isPrivateKeyView && (
+              <p style={{ color: "var(--muted)", fontSize: "0.9rem", marginBottom: "12px" }}>
+                Previous submission(s) were rejected. The bounty is open for new claims.
+              </p>
+            )}
             {sessionStatus === "loading" ? (
               <p style={{ color: "var(--muted)" }}>Checking sign-in...</p>
             ) : !session?.user ? (
@@ -397,12 +466,16 @@ export default function BountyDetailPage() {
               </form>
             )}
           </div>
-        ) : (
+        ) : job.bounty_type !== "human" && bountyIsOpen && (!submission || submission.rating === 1) ? (
           <div className="card" style={{ marginTop: "24px" }}>
-            <h2>No Response Yet</h2>
-            <p>This bounty hasn&apos;t been claimed yet. Check back later!</p>
+            <h2>{rejectedSubmissions.length > 0 ? "Bounty Reopened" : "No Response Yet"}</h2>
+            <p>
+              {rejectedSubmissions.length > 0
+                ? "Previous submission(s) were rejected. This bounty is open for new claims."
+                : "This bounty hasn\u0027t been claimed yet. Check back later!"}
+            </p>
           </div>
-        )}
+        ) : null}
       </section>
     </main>
   );

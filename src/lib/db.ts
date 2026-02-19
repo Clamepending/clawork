@@ -241,6 +241,14 @@ if (db) {
     PRIMARY KEY (human_id, chain),
     FOREIGN KEY (human_id) REFERENCES humans(id)
   );
+  CREATE TABLE IF NOT EXISTS stripe_human_deposits (
+    stripe_payment_intent_id TEXT NOT NULL PRIMARY KEY,
+    human_id INTEGER NOT NULL,
+    amount_usd REAL NOT NULL,
+    chain TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (human_id) REFERENCES humans(id)
+  );
   `);
 
   try {
@@ -713,6 +721,31 @@ export async function creditHumanVerified(humanId: number, chain: string, amount
   const now = new Date().toISOString();
   db!.prepare("UPDATE human_balances SET verified_balance = ?, balance = ?, updated_at = ? WHERE human_id = ? AND chain = ?")
     .run(newVerified, newBalance, now, humanId, chain.trim().toLowerCase());
+}
+
+/** Returns true if this is the first time we're processing this payment (we inserted). False if already processed. */
+export async function recordStripeHumanDepositIfNew(
+  paymentIntentId: string,
+  humanId: number,
+  amountUsd: number,
+  chain: string
+): Promise<boolean> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.recordStripeHumanDepositIfNewTurso(paymentIntentId, humanId, amountUsd, chain);
+  }
+  const now = new Date().toISOString();
+  try {
+    db!.prepare(
+      `INSERT INTO stripe_human_deposits (stripe_payment_intent_id, human_id, amount_usd, chain, created_at)
+       VALUES (?, ?, ?, ?, ?)`
+    ).run(paymentIntentId, humanId, amountUsd, chain.trim().toLowerCase(), now);
+    return true;
+  } catch (err: unknown) {
+    const e = err as { code?: string };
+    if (e?.code === "SQLITE_CONSTRAINT" || (typeof e?.code === "string" && e.code.includes("UNIQUE"))) return false;
+    throw err;
+  }
 }
 
 export async function processHumanWithdrawal(humanId: number, chain: string, amount: number): Promise<{ success: boolean; error?: string }> {
@@ -1297,7 +1330,11 @@ export async function createSubmission(params: {
   };
 }
 
-export function listSubmissions(jobId: number) {
+export async function listSubmissions(jobId: number): Promise<SubmissionRecord[]> {
+  if (usingTurso) {
+    const turso = await getTurso();
+    return turso.listSubmissionsTurso(jobId);
+  }
   return db!
     .prepare("SELECT * FROM submissions WHERE job_id = ? ORDER BY created_at DESC")
     .all(jobId) as SubmissionRecord[];
@@ -1711,16 +1748,13 @@ export async function checkAndApplyLateRatingPenalties() {
     return turso.checkAndApplyLateRatingPenaltiesTurso();
   }
   const now = new Date().toISOString();
-  // For humans: include submissions that are past deadline AND (not rated OR rated < 2)
-  // This ensures humans get auto-verified after 24 hours even if rated < 2 stars
+  // Only auto-verify submissions that are past deadline AND have not been rated at all.
+  // 1-star rejections are final (bounty reopens for new submissions).
   const lateSubmissions = db!.prepare(`
     SELECT s.id, s.job_id, s.agent_wallet, s.agent_id, s.human_id, s.rating_deadline, s.rating, j.chain, j.poster_wallet, j.amount
     FROM submissions s
     JOIN jobs j ON s.job_id = j.id
-    WHERE s.rating_deadline < ? AND (
-      (s.rating IS NULL) OR 
-      (s.human_id IS NOT NULL AND s.rating < 2)
-    )
+    WHERE s.rating_deadline < ? AND s.rating IS NULL
   `).all(now) as Array<{
     id: number;
     job_id: number;
@@ -1737,21 +1771,7 @@ export async function checkAndApplyLateRatingPenalties() {
   for (const sub of lateSubmissions) {
     if (sub.amount > 0) {
       if (sub.human_id != null) {
-        // For humans: automatically move pending to verified after 24 hours
-        // This applies even if rated < 2 stars (we restore the deducted amount)
-        const humanBalances = await getHumanBalances(sub.human_id, sub.chain);
-        const pendingToMove = Math.min(humanBalances.pending_balance, sub.amount);
-        const amountToAdd = sub.amount; // Always add the full amount to verified
-        
-        // Deduct from pending (may be less than amount if already deducted)
-        const newPending = Math.max(0, humanBalances.pending_balance - sub.amount);
-        // Add full amount to verified (restores if it was deducted)
-        const newVerified = humanBalances.verified_balance + amountToAdd;
-        // Adjust total balance: subtract what we removed from pending, add to verified
-        const newBalance = humanBalances.balance - pendingToMove + amountToAdd;
-        const now = new Date().toISOString();
-        db!.prepare("UPDATE human_balances SET pending_balance = ?, verified_balance = ?, balance = ?, updated_at = ? WHERE human_id = ? AND chain = ?")
-          .run(newPending, newVerified, newBalance, now, sub.human_id, sub.chain.trim().toLowerCase());
+        await moveHumanPendingToVerified(sub.human_id, sub.chain, sub.amount);
       } else if (sub.agent_id != null) {
         await moveAgentPendingToVerified(sub.agent_id, sub.chain, sub.amount);
       } else {
@@ -1769,6 +1789,8 @@ export async function checkAndApplyLateRatingPenalties() {
     if (sub.rating === null) {
       db!.prepare("UPDATE submissions SET rating = 0 WHERE id = ?").run(sub.id);
     }
+    // Set job status to completed (claimer gets paid via auto-verify)
+    await updateJobStatus(sub.job_id, "completed");
   }
 
   return lateSubmissions.length;
@@ -2132,6 +2154,9 @@ export async function deleteJob(privateId: string, posterWallet: string): Promis
   if (payment && !payment.collateral_returned) {
     await returnPosterCollateral(job.id, job.chain);
   }
+
+  // Delete submissions (rejected ones from multi-submission flow)
+  db!.prepare("DELETE FROM submissions WHERE job_id = ?").run(job.id);
 
   // Delete poster payment record
   db!.prepare("DELETE FROM poster_payments WHERE job_id = ?").run(job.id);
