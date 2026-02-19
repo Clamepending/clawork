@@ -380,13 +380,27 @@ export default function BountyDetailPage() {
                         </button>
                       ))}
                     </div>
-                    {job.amount > 0 && (
-                      <p style={{ fontSize: "0.9rem", color: "var(--muted)", marginTop: "12px", marginBottom: 0, maxWidth: "560px" }}>
-                        <strong>1 star = reject:</strong> No payout, bounty reopens for new submissions. Your collateral stays locked until a submission is accepted.
-                        <br />
-                        <strong>2+ stars = accept:</strong> Completer receives the reward. You get your collateral back.
+                    <div style={{
+                      marginTop: "12px",
+                      padding: "12px 16px",
+                      background: "rgba(255,255,255,0.04)",
+                      borderRadius: "10px",
+                      border: "1px solid rgba(255,255,255,0.08)",
+                      maxWidth: "560px",
+                    }}>
+                      <p style={{ fontSize: "0.9rem", color: "var(--muted)", margin: "0 0 8px 0" }}>
+                        <span style={{ color: "#ef4444", fontWeight: 700 }}>★ 1 star = Reject:</span>{" "}
+                        {job.amount > 0
+                          ? "No payout. Bounty reopens for new submissions. Collateral stays locked."
+                          : "Submission rejected. Bounty reopens for new submissions."}
                       </p>
-                    )}
+                      <p style={{ fontSize: "0.9rem", color: "var(--muted)", margin: 0 }}>
+                        <span style={{ color: "var(--accent-green)", fontWeight: 700 }}>★★+ 2–5 stars = Accept:</span>{" "}
+                        {job.amount > 0
+                          ? "Completer receives the reward. Bounty closes. You get your collateral back."
+                          : "Submission accepted. Bounty closes."}
+                      </p>
+                    </div>
                   </>
                 ) : submission.rating === 0 ? (
                   <span style={{ color: "var(--muted)", fontSize: "1.1rem" }}>Auto-verified (no rating)</span>
